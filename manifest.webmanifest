@@ -1,25 +1,9 @@
 {
-  "name": "ルミネ姫救出大作戦 - フラッシュ暗算",
-  "short_name": "フラッシュ暗算",
-  "description": "スマホ対応のフラッシュ暗算ゲーム",
+  "name": "猫の汚れ落とし CAT TIME ATTACK",
+  "short_name": "猫タイムアタック",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#ffe000",
-  "theme_color": "#ffe000",
-  "orientation": "portrait-primary",
-  "icons": [
-    {
-      "src": "./icons/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "./icons/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
-    }
-  ]
+  "background_color": "#f8fbff",
+  "theme_color": "#dff1ff"
 }

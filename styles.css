@@ -1,0 +1,329 @@
+
+:root{
+  --bg:#f8fbff;
+  --panel:#ffffff;
+  --ink:#30404d;
+  --sub:#71808b;
+  --line:#dce7ef;
+  --blue:#8ec9ef;
+  --blue2:#dff1ff;
+  --pink:#f4b9c8;
+  --yellow:#ffe29a;
+  --green:#9ed8ae;
+  --red:#e66767;
+  --gold:#f0bd42;
+  --shadow:0 12px 35px rgba(45,76,98,.10);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;min-height:100%;background:linear-gradient(#f7fcff,#fff9fb);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Yu Gothic UI","Yu Gothic",sans-serif}
+body{min-height:100svh;padding:max(10px,env(safe-area-inset-top)) 10px max(14px,env(safe-area-inset-bottom))}
+button,input{font:inherit}
+button{touch-action:manipulation;cursor:pointer}
+.app{max-width:1060px;margin:0 auto}
+.top{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px}
+.brand{font-weight:900;font-size:clamp(18px,4vw,30px)}
+.player-chip{border:1px solid var(--line);background:#fff;border-radius:999px;padding:8px 12px;font-size:13px;white-space:nowrap}
+.card{background:rgba(255,255,255,.94);border:1px solid var(--line);border-radius:22px;box-shadow:var(--shadow)}
+.screen{display:none}.screen.active{display:block}
+.menu-card{padding:20px;text-align:center}
+.title{font-size:clamp(24px,6vw,42px);font-weight:900;margin:6px 0}
+.lead{color:var(--sub);line-height:1.6;margin:4px auto 18px;max-width:680px}
+.prizes{max-width:540px;margin:0 auto 18px;text-align:left;background:#fbfdff;border:1px solid var(--line);border-radius:18px;padding:12px 16px}
+.prize-row{display:flex;justify-content:space-between;gap:12px;padding:7px 4px;border-bottom:1px dashed #e4edf3}
+.prize-row:last-child{border-bottom:0}.prize-row strong{color:#d05a6f}
+.btn{border:0;border-radius:16px;padding:13px 18px;font-weight:800;min-height:48px}
+.btn-primary{background:var(--green);color:#16351f}
+.btn-ranking{background:var(--yellow);color:#49370a}
+.btn-light{background:#f4f7f9;color:var(--ink);border:1px solid var(--line)}
+.btn-danger{background:#ffe9e9;color:#a73737}
+.menu-buttons{display:grid;grid-template-columns:1fr;gap:10px;max-width:420px;margin:16px auto}
+.rule{font-size:13px;color:var(--sub);margin-top:12px}
+.game-card{padding:12px}
+.game-head{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center}
+.progress{font-weight:800;font-size:14px}
+.timer{font-weight:900;font-variant-numeric:tabular-nums}
+.timer.danger{color:var(--red)}
+.bar{grid-column:1/-1;background:#edf2f5;height:11px;border-radius:999px;overflow:hidden}
+.bar>div{height:100%;background:var(--blue);width:100%;transition:width .1s linear}
+.cat-title{text-align:center;font-size:clamp(22px,5vw,34px);font-weight:900;margin:13px 0 8px}
+.ready{text-align:center;padding:90px 15px}
+.ready-stage{color:var(--sub);font-weight:800}.ready-name{font-size:clamp(30px,8vw,58px);font-weight:900;margin-top:16px}
+.images{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start}
+.image-panel{text-align:center}
+.image-label{font-weight:800;margin:5px 0 7px}
+.canvas-wrap{position:relative;width:100%;max-width:430px;margin:auto;background:#f2f4f5;border:1px solid var(--line);border-radius:18px;overflow:hidden}
+canvas{display:block;width:100%;height:auto;touch-action:manipulation}
+.tap-hint{text-align:center;color:var(--sub);font-size:12px;margin:9px 0 2px}
+.result-card{padding:24px;text-align:center}
+.result-big{font-size:clamp(28px,7vw,48px);font-weight:900;margin:8px}
+.result-prize{font-size:clamp(26px,7vw,50px);font-weight:900;color:#e59242;margin:14px}
+.rank-card{padding:14px}
+.rank-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+.rank-title{font-size:22px;font-weight:900}
+.rank-list{border:1px solid var(--line);border-radius:16px;overflow:hidden;background:#fff}
+.rank-row{display:grid;grid-template-columns:52px minmax(0,1fr) 100px;gap:8px;padding:11px 12px;border-bottom:1px solid #eef3f6;align-items:center}
+.rank-row:last-child{border-bottom:0}
+.rank-pos{font-weight:900;text-align:center}.rank-pos.gold{color:#d9a200}.rank-pos.silver{color:#89939c}.rank-pos.bronze{color:#b8763b}
+.rank-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.rank-time{text-align:right;color:#d15050;font-weight:800;font-variant-numeric:tabular-nums}
+.rank-empty,.rank-loading{text-align:center;padding:35px;color:var(--sub)}
+.modal{position:fixed;inset:0;z-index:50;display:none;align-items:center;justify-content:center;background:rgba(35,45,55,.46);padding:16px}
+.modal.open{display:flex}
+.modal-card{width:min(540px,100%);background:#fff;border-radius:24px;padding:22px;box-shadow:0 20px 60px rgba(0,0,0,.22)}
+.modal-title{font-size:24px;font-weight:900;margin-bottom:8px}
+.notice{background:#fff5df;border:1px solid #f2d792;border-radius:15px;padding:12px 14px;line-height:1.55;font-size:13px;margin:12px 0}
+.nickname{width:100%;min-height:50px;border:2px solid var(--line);border-radius:14px;padding:10px 13px;font-size:18px;outline:none}
+.nickname:focus{border-color:var(--blue)}
+.check-row{display:flex;align-items:flex-start;gap:9px;margin:13px 0;font-size:13px;line-height:1.5}
+.check-row input{width:20px;height:20px;flex:0 0 auto}
+.error{min-height:20px;color:#c43d3d;font-size:12px;margin-top:6px}
+.small{font-size:12px;color:var(--sub);line-height:1.5}
+.offline-badge{display:inline-block;background:#f0f3f5;border-radius:999px;padding:4px 8px;font-size:11px;color:var(--sub)}
+.missing{padding:30px 12px;color:#a44;background:#fff4f4;font-size:13px;line-height:1.6}
+
+@media(max-width:720px){
+  .top{align-items:flex-start}.player-chip{font-size:11px}
+  .images{grid-template-columns:1fr}
+  .image-panel.original-panel .canvas-wrap{max-width:290px}
+  .image-panel.diff-panel .canvas-wrap{max-width:390px}
+  .game-card{padding:9px}
+  .rank-row{grid-template-columns:42px minmax(0,1fr) 84px;padding:10px 8px;font-size:13px}
+}
+
+
+/* =========================================================
+   v3: スマホ横向き・スクロール最小化
+   ========================================================= */
+
+.rotate-hint{
+  display:none;
+  margin:8px auto 0;
+  max-width:420px;
+  padding:9px 12px;
+  border-radius:14px;
+  background:#fff4d8;
+  border:1px solid #f0d58a;
+  color:#765b15;
+  font-size:12px;
+  font-weight:800;
+  text-align:center;
+}
+
+/* ゲーム中は余計な縦スクロールを抑える */
+body.playing-mode{
+  overscroll-behavior:none;
+}
+
+/* 縦向きスマホでは回転案内を表示 */
+@media (orientation:portrait) and (max-width:720px){
+  body.playing-mode .rotate-hint{
+    display:block;
+  }
+
+  body.playing-mode .original-panel .canvas-wrap{
+    max-width:250px;
+  }
+
+  body.playing-mode .diff-panel .canvas-wrap{
+    max-width:340px;
+  }
+}
+
+/* 横向きスマホ / 小型タブレット */
+@media (orientation:landscape) and (max-height:650px){
+
+  body.playing-mode{
+    overflow:hidden;
+    padding-top:max(4px,env(safe-area-inset-top));
+    padding-bottom:max(4px,env(safe-area-inset-bottom));
+  }
+
+  body.playing-mode .top{
+    margin-bottom:3px;
+    min-height:30px;
+  }
+
+  body.playing-mode .brand{
+    font-size:15px;
+  }
+
+  body.playing-mode .player-chip{
+    padding:5px 9px;
+    font-size:10px;
+  }
+
+  body.playing-mode .game-card{
+    padding:5px 8px 4px;
+    height:calc(100svh - 45px);
+    overflow:hidden;
+    display:flex;
+    flex-direction:column;
+  }
+
+  body.playing-mode .game-head{
+    flex:0 0 auto;
+    grid-template-columns:1fr auto;
+    gap:3px 8px;
+  }
+
+  body.playing-mode .progress{
+    font-size:11px;
+  }
+
+  body.playing-mode .timer{
+    font-size:12px;
+  }
+
+  body.playing-mode .bar{
+    height:6px;
+  }
+
+  body.playing-mode .cat-title{
+    flex:0 0 auto;
+    margin:2px 0 3px;
+    font-size:16px;
+    line-height:1.1;
+  }
+
+  body.playing-mode .images{
+    flex:1 1 auto;
+    min-height:0;
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:8px;
+    align-items:center;
+    overflow:hidden;
+  }
+
+  body.playing-mode .image-panel{
+    min-width:0;
+    min-height:0;
+    height:100%;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+  }
+
+  body.playing-mode .image-label{
+    flex:0 0 auto;
+    margin:0 0 2px;
+    font-size:10px;
+    line-height:1.1;
+  }
+
+  body.playing-mode .canvas-wrap{
+    flex:0 1 auto;
+    width:auto;
+    max-width:100%;
+    height:min(72svh, 500px);
+    aspect-ratio:4 / 5;
+    margin:0 auto;
+  }
+
+  body.playing-mode .canvas-wrap canvas{
+    width:100%;
+    height:100%;
+    object-fit:fill;
+  }
+
+  body.playing-mode .tap-hint{
+    flex:0 0 auto;
+    margin:2px 0 0;
+    font-size:9px;
+    line-height:1;
+  }
+
+  body.playing-mode .rotate-hint{
+    display:none !important;
+  }
+}
+
+/* 少し背の高い横向き端末にも2列を維持 */
+@media (orientation:landscape) and (min-height:651px) and (max-width:1100px){
+  body.playing-mode .images{
+    grid-template-columns:1fr 1fr;
+  }
+
+  body.playing-mode .canvas-wrap{
+    max-width:min(40vw,430px);
+  }
+}
+
+
+/* =========================================================
+   v4: 横向き時の2枚を中央に寄せる
+   ========================================================= */
+@media (orientation:landscape) and (max-height:650px){
+
+  body.playing-mode .images{
+    flex:1 1 auto;
+    min-height:0;
+
+    /* 2枚を画面いっぱいに広げず、中央にまとめる */
+    display:grid;
+    grid-template-columns:auto auto;
+    justify-content:center;
+    align-items:center;
+
+    /* 写真同士の隙間 */
+    column-gap:10px;
+
+    overflow:hidden;
+  }
+
+  body.playing-mode .image-panel{
+    min-width:0;
+    min-height:0;
+
+    width:auto;
+    height:100%;
+
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+  }
+
+  body.playing-mode .canvas-wrap{
+    flex:0 1 auto;
+
+    /* 横幅を画面の約40%以内に制限 */
+    width:min(40vw, 360px);
+    max-width:360px;
+
+    /* 高さ側でも画面に収める */
+    height:auto;
+    max-height:70svh;
+
+    aspect-ratio:4 / 5;
+    margin:0;
+  }
+
+  body.playing-mode .canvas-wrap canvas{
+    display:block;
+    width:100%;
+    height:100%;
+  }
+}
+
+/* 少し背の高い横向き端末でも同様に中央寄せ */
+@media (orientation:landscape) and (min-height:651px) and (max-width:1100px){
+
+  body.playing-mode .images{
+    display:grid;
+    grid-template-columns:auto auto;
+    justify-content:center;
+    align-items:center;
+    column-gap:14px;
+  }
+
+  body.playing-mode .image-panel{
+    width:auto;
+  }
+
+  body.playing-mode .canvas-wrap{
+    width:min(40vw, 400px);
+    max-width:400px;
+    margin:0;
+  }
+}

@@ -1,1256 +1,661 @@
+
 (() => {
 "use strict";
 
-const $ = (id) => document.getElementById(id);
-const screens = [...document.querySelectorAll(".screen")];
+const TIME_LIMIT = 60;
+const TOTAL_STAGES = 10;
+const DIFFS_PER_STAGE = 7;
+const MAX_RANKINGS = 1000;
+const NICK_KEY = "cat_time_attack_nickname_v2";
+const PLAYER_NO_KEY = "cat_time_attack_player_no_v2";
+const LOCAL_RANK_KEY = "cat_time_attack_local_rankings_v2";
 
-const STORAGE_KEY = "flashMentalYellow.v3";
-const LEGACY_STORAGE_KEYS = [
-  "flashMentalYellow.v2",
-  "flashMentalYellow.v1"
-];
-const LOCAL_PLAYER_ID_KEY = "flashMentalYellow.localFallbackPlayerId.v1";
-const EDITION = "yellow";
-const CLIENT_VERSION = "web-v5.0";
-const MAX_RANKING = 1000;
-const LIMIT_TIME = 10.0;
+const screens = ["menuScreen","readyScreen","playScreen","resultScreen","rankingScreen"];
+const $ = id => document.getElementById(id);
 
-const state = {
-  nickname: "",
-  authUserId: "",
-  localPlayerId: "",
-  authReady: false,
-  authMode: "initializing",
-  runId: "",
-  runStartedAt: 0,
-  questionsAnswered: 0,
-  level: 1,
-  playerHp: 100,
-  playerMaxHp: 100,
-  enemyHp: 100,
-  enemyMaxHp: 100,
-  bossHp: 600,
-  bossMaxHp: 600,
-  mode: "enemy",
-  nums: [],
-  answer: 0,
-  answerText: "",
-  answering: false,
-  answerDeadline: 0,
-  timerRAF: null,
-  paused: false,
-  pauseStartedAt: 0,
-  pausedTotalMs: 0,
-  answerPauseRemainingMs: 0,
-  pausedMedia: [],
-  runActive: false,
-  eligibleForOnlineRanking: true,
-  bestLevel: 0,
-  history: [],
-  settings: {
-    fontSize: "normal",
-    sfx: true,
-    vibration: true
+let nickname = localStorage.getItem(NICK_KEY) || "";
+let playerNo = Number(localStorage.getItem(PLAYER_NO_KEY) || 0) || null;
+let supabaseClient = null;
+let authReady = false;
+let mode = "MENU";
+let chosenCats = [];
+let stageIndex = 0;
+let startTimestamp = 0;
+let remainingTime = TIME_LIMIT;
+let currentCat = null;
+let originalImage = null;
+let diffs = [];
+let found = [];
+let foundCount = 0;
+let readyTimer = null;
+let animationFrame = null;
+let resultSubmitted = false;
+
+const originalCanvas = $("originalCanvas");
+const diffCanvas = $("diffCanvas");
+const octx = originalCanvas.getContext("2d");
+const dctx = diffCanvas.getContext("2d");
+
+function supabaseReady(){
+  const cfg = window.APP_CONFIG || {};
+  return !!(
+    cfg.SUPABASE_URL &&
+    cfg.SUPABASE_PUBLISHABLE_KEY &&
+    window.supabase &&
+    window.supabase.createClient
+  );
+}
+
+function initSupabase(){
+  if(!supabaseReady()) return;
+  const cfg = window.APP_CONFIG;
+  supabaseClient = window.supabase.createClient(
+    cfg.SUPABASE_URL,
+    cfg.SUPABASE_PUBLISHABLE_KEY
+  );
+}
+
+function showScreen(id){
+  screens.forEach(s => $(s).classList.toggle("active", s === id));
+
+  // PLAY中だけ横向き最適化CSSを有効にする
+  document.body.classList.toggle("playing-mode", id === "playScreen");
+
+  window.scrollTo({top:0, behavior:"instant"});
+}
+
+function updateNicknameUI(){
+  if(!nickname){
+    $("currentName").textContent = "名前を設定";
+    return;
   }
-};
-
-let audioCtx = null;
-
-const media = {
-  ready: new Audio("./assets/ready_countdown.mp3"),
-  go: new Audio("./assets/go.wav"),
-  correct: new Audio("./assets/correct.mp3"),
-  wrong: new Audio("./assets/wrong.mp3"),
-  hit: new Audio("./assets/hit.mp3"),
-  death: new Audio("./assets/enemy_death.mp3"),
-  bossBgm: new Audio("./assets/boss_bgm.mp3")
-};
-media.ready.preload = "auto";
-media.go.preload = "auto";
-media.bossBgm.loop = true;
-media.bossBgm.volume = 0.26;
-
-function safePlay(audio, volume=null) {
-  if (!state.settings.sfx && audio !== media.bossBgm) return;
-  if (audio === media.bossBgm && !state.settings.sfx) return;
-  try {
-    if (volume !== null) audio.volume = volume;
-    audio.currentTime = 0;
-    const p = audio.play();
-    if (p && typeof p.catch === "function") p.catch(()=>{});
-  } catch (_) {}
+  $("currentName").textContent =
+    playerNo ? `${nickname} / No.${playerNo}` : nickname;
 }
 
-function stopBossBgm() {
-  try {
-    media.bossBgm.pause();
-    media.bossBgm.currentTime = 0;
-  } catch (_) {}
+async function ensureAnonymousSession(){
+  if(!supabaseClient) return false;
+
+  const {data:{session}, error:getError} =
+    await supabaseClient.auth.getSession();
+
+  if(getError) throw getError;
+
+  if(session){
+    authReady = true;
+    return true;
+  }
+
+  const {error} = await supabaseClient.auth.signInAnonymously();
+  if(error) throw error;
+
+  authReady = true;
+  return true;
 }
 
-function showScreen(name) {
-  screens.forEach(s => s.classList.toggle("active", s.id === `screen-${name}`));
-  document.body.classList.toggle("game-active", name === "game");
+async function loadMyPlayer(){
+  if(!supabaseClient) return false;
+  await ensureAnonymousSession();
+
+  const {data, error} =
+    await supabaseClient.rpc("get_my_cat_player");
+
+  if(error) throw error;
+
+  const row = Array.isArray(data) ? data[0] : null;
+
+  if(!row){
+    playerNo = null;
+    localStorage.removeItem(PLAYER_NO_KEY);
+    updateNicknameUI();
+    return false;
+  }
+
+  nickname = row.nickname;
+  playerNo = Number(row.player_no);
+
+  localStorage.setItem(NICK_KEY, nickname);
+  localStorage.setItem(PLAYER_NO_KEY, String(playerNo));
+
+  updateNicknameUI();
+  return true;
 }
 
-function toast(message) {
-  const el = $("toast");
-  el.textContent = message;
-  el.classList.remove("hidden");
-  clearTimeout(toast._t);
-  toast._t = setTimeout(() => el.classList.add("hidden"), 2200);
-}
+async function registerPlayer(name){
+  if(!supabaseClient) return null;
 
-function vibrate(pattern) {
-  if (state.settings.vibration && navigator.vibrate) navigator.vibrate(pattern);
-}
+  await ensureAnonymousSession();
 
-function beep(freq=440, dur=0.07, gain=0.035, type="sine") {
-  if (!state.settings.sfx) return;
-  try {
-    audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
-    const osc = audioCtx.createOscillator();
-    const g = audioCtx.createGain();
-    osc.type = type;
-    osc.frequency.value = freq;
-    g.gain.setValueAtTime(gain, audioCtx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + dur);
-    osc.connect(g).connect(audioCtx.destination);
-    osc.start();
-    osc.stop(audioCtx.currentTime + dur);
-  } catch (_) {}
-}
-
-async function readyCountdown() {
-  // Original pygame behavior:
-  // ready_se.play()
-  // READY_DELAY = ready_se.get_length() - 1.8
-  //
-  // The original ready sound is about 6 seconds long, so the numbers
-  // begin about 4.2 seconds after READY? appears, while the tail of
-  // the countdown sound continues naturally.
-  safePlay(media.ready, .42);
-
-  let duration = Number(media.ready.duration);
-
-  if (!Number.isFinite(duration) || duration <= 0) {
-    await new Promise(resolve => {
-      let done = false;
-
-      const finish = () => {
-        if (done) return;
-        done = true;
-        media.ready.removeEventListener("loadedmetadata", finish);
-        resolve();
-      };
-
-      media.ready.addEventListener("loadedmetadata", finish, {once:true});
-      setTimeout(finish, 700);
+  const {data, error} =
+    await supabaseClient.rpc("register_cat_player", {
+      p_nickname: name
     });
 
-    duration = Number(media.ready.duration);
-  }
+  if(error) throw error;
 
-  const readyDelaySec = (
-    Number.isFinite(duration) && duration > 1.8
-      ? Math.max(0, duration - 1.8)
-      : 4.2
-  );
+  const row = Array.isArray(data) ? data[0] : null;
+  if(!row) throw new Error("参加者番号を取得できませんでした。");
 
-  await pausableSleep(readyDelaySec * 1000);
-}
-function hitSound() {
-  safePlay(media.correct, .38);
-  safePlay(media.hit, .24);
-}
-function missSound() {
-  safePlay(media.wrong, .38);
-  safePlay(media.miss, .20);
-}
-function levelSound() {
-  beep(520,.06,.025);
-  setTimeout(()=>beep(660,.07,.025),70);
-  setTimeout(()=>beep(880,.12,.03),145);
+  nickname = row.nickname;
+  playerNo = Number(row.player_no);
+
+  localStorage.setItem(NICK_KEY, nickname);
+  localStorage.setItem(PLAYER_NO_KEY, String(playerNo));
+
+  updateNicknameUI();
+  return row;
 }
 
-function getDifficulty(lv) {
-  const count = Math.min(3 + Math.floor((lv - 1) / 2), 25);
-  const interval = Math.max(0.85 - ((lv - 1) * 0.015), 0.12);
-  return { min:1, count, interval };
+function openNameModal(force=false){
+  $("nicknameInput").value = nickname;
+  $("privacyCheck").checked = false;
+  $("nameError").textContent = "";
+  $("nameModal").classList.add("open");
+  if(force) $("nameModal").dataset.force = "1";
+  else delete $("nameModal").dataset.force;
+  setTimeout(() => $("nicknameInput").focus(), 100);
 }
 
-function randomInt(a,b) {
-  return Math.floor(Math.random()*(b-a+1))+a;
+function nicknameProblem(name){
+  const n = name.trim();
+  const len = Array.from(n).length;
+  if(len < 1) return "ニックネームを入力してください。";
+  if(len > 12) return "ニックネームは12文字以内にしてください。";
+  if(/[\r\n\t]/.test(n)) return "改行などは使えません。";
+  if(/https?:\/\/|www\./i.test(n)) return "URLはニックネームに使えません。";
+  if(/@/.test(n)) return "メールアドレスやSNS IDに見える文字列は使えません。";
+  if(/\d[\d\-\s]{6,}\d/.test(n)) return "電話番号などに見える数字列は使えません。";
+  if(/[<>]/.test(n)) return "「<」「>」は使えません。";
+  return "";
 }
 
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
+async function saveNickname(){
+  const n = $("nicknameInput").value.trim();
+  const problem = nicknameProblem(n);
 
-async function pausableSleep(ms) {
-  let remaining = Math.max(0, Number(ms) || 0);
-  let last = performance.now();
-
-  while (remaining > 0 && state.runActive) {
-    await sleep(Math.min(remaining, 40));
-
-    const now = performance.now();
-
-    if (!state.paused) {
-      remaining -= Math.max(0, now - last);
-    }
-
-    last = now;
-  }
-}
-
-function makeUUID() {
-  if (globalThis.crypto && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
-    const r = Math.random()*16|0;
-    const v = c === "x" ? r : (r&0x3|0x8);
-    return v.toString(16);
-  });
-}
-
-function ensureLocalPlayerId() {
-  let id = localStorage.getItem(LOCAL_PLAYER_ID_KEY);
-  if (!id) {
-    id = makeUUID();
-    localStorage.setItem(LOCAL_PLAYER_ID_KEY, id);
-  }
-  state.localPlayerId = id;
-  return id;
-}
-
-let supabaseClient = null;
-
-function onlineConfigured() {
-  const c = window.APP_CONFIG || {};
-  return !!(
-    c.ONLINE_RANKING &&
-    c.USE_ANONYMOUS_AUTH &&
-    c.SUPABASE_URL &&
-    c.SUPABASE_PUBLISHABLE_KEY
-  );
-}
-
-function getRankingPlayerId() {
-  return state.authUserId || state.localPlayerId || ensureLocalPlayerId();
-}
-
-async function initAnonymousAuth() {
-  ensureLocalPlayerId();
-
-  if (!onlineConfigured()) {
-    state.authReady = true;
-    state.authMode = "local";
-    updateOnlineStatus();
-    updateStartButton();
+  if(problem){
+    $("nameError").textContent = problem;
     return;
   }
 
-  if (!window.supabase || typeof window.supabase.createClient !== "function") {
-    state.authReady = true;
-    state.authMode = "local-fallback";
-    updateOnlineStatus("Supabaseライブラリを読み込めなかったため端末内モード");
-    updateStartButton();
+  if(!$("privacyCheck").checked){
+    $("nameError").textContent =
+      "注意事項を確認してチェックを入れてください。";
     return;
   }
 
-  try {
-    const c = window.APP_CONFIG;
+  $("nameError").textContent = "登録中…";
+  $("saveNameBtn").disabled = true;
 
-    supabaseClient = window.supabase.createClient(
-      c.SUPABASE_URL,
-      c.SUPABASE_PUBLISHABLE_KEY,
-      {
-        auth: {
-          persistSession: true,
-          autoRefreshToken: true,
-          detectSessionInUrl: false
-        }
-      }
-    );
-
-    const {
-      data: { session },
-      error: sessionError
-    } = await supabaseClient.auth.getSession();
-
-    if (sessionError) {
-      throw sessionError;
+  try{
+    if(supabaseClient){
+      await registerPlayer(n);
+    }else{
+      nickname = n;
+      localStorage.setItem(NICK_KEY, nickname);
+      updateNicknameUI();
     }
 
-    if (session?.user?.id) {
-      state.authUserId = session.user.id;
-      state.authReady = true;
-      state.authMode = "anonymous-auth";
-      updateOnlineStatus();
-      updateStartButton();
-      return;
-    }
-
-    const { data, error } = await supabaseClient.auth.signInAnonymously();
-
-    if (error) throw error;
-
-    if (!data?.user?.id) {
-      throw new Error("匿名ユーザーIDを取得できませんでした");
-    }
-
-    state.authUserId = data.user.id;
-    state.authReady = true;
-    state.authMode = "anonymous-auth";
-    updateOnlineStatus();
-    updateStartButton();
-
-  } catch (error) {
-    console.error("Anonymous auth failed:", error);
-    state.authUserId = "";
-    state.authReady = true;
-    state.authMode = "local-fallback";
-    updateOnlineStatus(
-      "匿名認証に接続できなかったため、今回は端末内ランキングで動作します"
-    );
-    updateStartButton();
+    $("nameModal").classList.remove("open");
+  }catch(err){
+    console.error(err);
+    $("nameError").textContent =
+      "登録できませんでした。Supabaseの匿名ログイン設定を確認してください。";
+  }finally{
+    $("saveNameBtn").disabled = false;
   }
 }
 
-
-function cleanNickname(value) {
-  return Array.from(
-    String(value || "")
-      .normalize("NFKC")
-      .replace(/[\\u0000-\\u001F\\u007F]/g, "")
-      .replace(/\\s+/g, " ")
-      .trim()
-  ).slice(0, 12).join("");
+function sample(array, count){
+  const a = [...array];
+  for(let i=a.length-1;i>0;i--){
+    const j = Math.floor(Math.random()*(i+1));
+    [a[i],a[j]] = [a[j],a[i]];
+  }
+  return a.slice(0,count);
 }
 
-function saveLocal() {
-  const payload = {
-    version:3,
-    nickname:state.nickname,
-    bestLevel:state.bestLevel,
-    history:state.history.slice(0,100),
-    settings:state.settings,
-    resume: state.runActive ? {
-      level:state.level,
-      playerHp:state.playerHp,
-      enemyHp:state.enemyHp,
-      bossHp:state.bossHp,
-      mode:state.mode,
-      runId:state.runId,
-      runStartedAt:state.runStartedAt,
-      questionsAnswered:state.questionsAnswered
-    } : null
-  };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-}
-
-function loadLocal() {
-  ensureLocalPlayerId();
-
-  try {
-    let raw = localStorage.getItem(STORAGE_KEY);
-
-    if (!raw) {
-      for (const key of LEGACY_STORAGE_KEYS) {
-        raw = localStorage.getItem(key);
-        if (raw) break;
-      }
-    }
-
-    if (raw) {
-      const d = JSON.parse(raw);
-      state.nickname = cleanNickname(d.nickname || "");
-      state.bestLevel = Number(d.bestLevel || 0);
-      state.history = Array.isArray(d.history) ? d.history.slice(0,100) : [];
-      state.settings = {...state.settings, ...(d.settings || {})};
-      $("nickname").value = state.nickname;
-    }
-  } catch (_) {}
-
-  applySettings();
-}
-
-
-function applySettings() {
-  const scales = {normal:"1", large:"1.18", xlarge:"1.36"};
-  document.documentElement.style.setProperty("--font-scale", scales[state.settings.fontSize] || "1");
-  $("sfxToggle").checked = !!state.settings.sfx;
-  $("vibrationToggle").checked = !!state.settings.vibration;
-  document.querySelectorAll("[data-font-size]").forEach(btn => {
-    btn.classList.toggle("active", btn.dataset.fontSize === state.settings.fontSize);
+function loadImage(src){
+  return new Promise((resolve,reject)=>{
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
   });
 }
 
-function updateStartButton() {
-  const nicknameOk = cleanNickname($("nickname").value).length > 0;
-  const privacyOk = $("privacyCheck").checked;
-  const authAttemptComplete = state.authReady;
-
-  $("startBtn").disabled = !(
-    nicknameOk &&
-    privacyOk &&
-    authAttemptComplete
-  );
+function imagePath(catName){
+  return `cats/${encodeURIComponent(catName)}.webp`;
 }
 
-function renderAnswer() {
-  $("answerDigits").textContent = state.answerText;
+function clearCanvas(ctx){
+  ctx.clearRect(0,0,400,500);
+  ctx.fillStyle = "#f1f3f4";
+  ctx.fillRect(0,0,400,500);
 }
 
-function clearAnswer() {
-  state.answerText = "";
-  renderAnswer();
+function drawContained(ctx, img){
+  clearCanvas(ctx);
+  const ratio = Math.min(400/img.naturalWidth, 500/img.naturalHeight);
+  const w = img.naturalWidth * ratio;
+  const h = img.naturalHeight * ratio;
+  const x = (400-w)/2;
+  const y = (500-h)/2;
+  ctx.drawImage(img,x,y,w,h);
+  return {x,y,w,h};
 }
 
-function appendAnswerDigit(digit) {
-  if (!state.answering || state.paused) return;
-  if (!/^\d$/.test(String(digit))) return;
-  if (state.answerText.length >= 6) return;
-
-  state.answerText += String(digit);
-  renderAnswer();
-  beep(430 + Number(digit)*14, .025, .012, "square");
+function getPixelApproxColor(ctx,x,y){
+  try{
+    const p = ctx.getImageData(
+      Math.max(0,Math.min(399,Math.round(x))),
+      Math.max(0,Math.min(499,Math.round(y))),
+      1,1
+    ).data;
+    return [p[0],p[1],p[2]];
+  }catch{
+    return [180,180,180];
+  }
 }
 
-function backspaceAnswer() {
-  if (!state.answering || state.paused) return;
-  state.answerText = state.answerText.slice(0,-1);
-  renderAnswer();
+function targetColor(base, type){
+  if(type === "vivid"){
+    return [Math.min(255,base[0]+110), Math.max(0,base[1]-70), 0];
+  }
+  if(type === "subtle"){
+    return [Math.max(0,base[0]-60), Math.max(0,base[1]-60), Math.min(255,base[2]+60)];
+  }
+  return base[0] < 180 ? [255,255,255] : [90,50,10];
 }
 
-function enemyProfileForLevel(level) {
-  // Keep the enemy progression monotonic.
-  // HP changes never swap a strong enemy back to a weaker character.
-  if (level >= 50) {
-    return {
-      title: "FINAL BOSS",
-      image: "./assets/boss.png",
-      tier: "boss"
-    };
+function applyCustomDiff(ctx,x,y,size,type){
+  const base = getPixelApproxColor(ctx,x,y);
+  const c = targetColor(base,type);
+  const grad = ctx.createRadialGradient(x,y,1,x,y,size);
+  grad.addColorStop(0,`rgba(${c[0]},${c[1]},${c[2]},0.80)`);
+  grad.addColorStop(0.45,`rgba(${c[0]},${c[1]},${c[2]},0.48)`);
+  grad.addColorStop(1,`rgba(${c[0]},${c[1]},${c[2]},0)`);
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(x,y,size,0,Math.PI*2);
+  ctx.fill();
+}
+
+function redrawDiff(){
+  if(!originalImage) return;
+  drawContained(dctx, originalImage);
+  diffs.forEach((p,i)=>{
+    applyCustomDiff(dctx,p.x,p.y,p.size,currentCat.type);
+    if(found[i]){
+      dctx.beginPath();
+      dctx.strokeStyle = "#ff3c47";
+      dctx.lineWidth = 5;
+      dctx.arc(p.x,p.y,35,0,Math.PI*2);
+      dctx.stroke();
+    }
+  });
+}
+
+async function setupStage(){
+  currentCat = chosenCats[stageIndex];
+  foundCount = 0;
+  found = new Array(DIFFS_PER_STAGE).fill(false);
+  diffs = [];
+  originalImage = null;
+
+  showScreen("readyScreen");
+  $("readyStage").textContent = `STAGE ${stageIndex+1} / ${TOTAL_STAGES}`;
+  $("readyName").textContent = currentCat.name;
+
+  try{
+    originalImage = await loadImage(imagePath(currentCat.name));
+  }catch{
+    $("readyName").innerHTML = "";
+    const box = document.createElement("div");
+    box.className = "missing";
+    box.textContent = `画像「cats/${currentCat.name}.webp」が見つかりません。GitHubの cats フォルダにこの画像を追加してください。`;
+    $("readyName").appendChild(box);
+    setTimeout(() => endGame(false, "画像が見つからないため中断しました。"), 1800);
+    return;
   }
 
-  if (level >= 35) {
-    return {
-      title: "狂戦士ゴブリン",
-      image: "./assets/goblin_angry.png",
-      tier: "berserker"
-    };
-  }
+  const rect = drawContained(octx, originalImage);
+  drawContained(dctx, originalImage);
 
-  if (level >= 20) {
-    return {
-      title: "武装ゴブリン",
-      image: "./assets/goblin4.png",
-      tier: "armored"
-    };
-  }
-
-  return {
-    title: "ゴブリン",
-    image: "./assets/goblin.png",
-    tier: "normal"
-  };
-}
-
-function showDamagePop(id, text) {
-  const el = $(id);
-  if (!el) return;
-
-  el.textContent = text;
-  el.classList.remove("pop");
-
-  // Restart CSS animation reliably.
-  void el.offsetWidth;
-  el.classList.add("pop");
-}
-
-function pauseGame() {
-  if (!state.runActive || state.paused) return;
-
-  state.paused = true;
-  state.pauseStartedAt = Date.now();
-
-  // Freeze the answer timer exactly where it is.
-  if (state.answering) {
-    state.answerPauseRemainingMs = Math.max(
-      0,
-      state.answerDeadline - performance.now()
+  const padding = 30;
+  for(let i=0;i<DIFFS_PER_STAGE;i++){
+    let candidate, tries=0;
+    do{
+      candidate = {
+        x: Math.round(rect.x + padding + Math.random()*Math.max(1,rect.w-padding*2)),
+        y: Math.round(rect.y + padding + Math.random()*Math.max(1,rect.h-padding*2)),
+        size: 20 + Math.floor(Math.random()*11)
+      };
+      tries++;
+    }while(
+      tries < 50 &&
+      diffs.some(p => Math.hypot(p.x-candidate.x,p.y-candidate.y) < 58)
     );
-    cancelAnimationFrame(state.timerRAF);
+    diffs.push(candidate);
   }
+  redrawDiff();
 
-  // Pause any relevant long-running audio at its current position.
-  state.pausedMedia = [];
-
-  for (const audio of [media.ready, media.bossBgm]) {
-    try {
-      if (!audio.paused && !audio.ended) {
-        state.pausedMedia.push(audio);
-        audio.pause();
-      }
-    } catch (_) {}
-  }
-
-  $("pauseOverlay").classList.remove("hidden");
+  if(readyTimer) clearTimeout(readyTimer);
+  readyTimer = setTimeout(()=>{
+    if(mode !== "RUNNING") return;
+    showScreen("playScreen");
+    renderPlayHeader();
+  },1000);
 }
 
-function resumeGame() {
-  if (!state.runActive || !state.paused) return;
-
-  const pausedFor = Math.max(
-    0,
-    Date.now() - state.pauseStartedAt
-  );
-
-  state.pausedTotalMs += pausedFor;
-  state.pauseStartedAt = 0;
-  state.paused = false;
-
-  $("pauseOverlay").classList.add("hidden");
-
-  // Continue answer countdown from the same remaining time.
-  if (state.answering) {
-    state.answerDeadline =
-      performance.now() + state.answerPauseRemainingMs;
-
-    state.answerPauseRemainingMs = 0;
-    tickAnswerTimer();
+async function startChallenge(){
+  if(!nickname){
+    openNameModal(true);
+    return;
   }
 
-  // Continue paused audio at the same position.
-  for (const audio of state.pausedMedia) {
-    try {
-      const p = audio.play();
-      if (p && typeof p.catch === "function") {
-        p.catch(()=>{});
-      }
-    } catch (_) {}
-  }
-
-  state.pausedMedia = [];
-}
-
-function togglePause() {
-  if (state.paused) {
-    resumeGame();
-  } else {
-    pauseGame();
-  }
-}
-
-function startRun() {
-  const nickname = cleanNickname($("nickname").value);
-  if (!nickname || !$("privacyCheck").checked) return;
-
-  state.nickname = nickname;
-  $("nickname").value = nickname;
-  state.runId = makeUUID();
-  state.runStartedAt = Date.now();
-  state.questionsAnswered = 0;
-  state.paused = false;
-  state.pauseStartedAt = 0;
-  state.pausedTotalMs = 0;
-  state.answerPauseRemainingMs = 0;
-  state.pausedMedia = [];
-  $("pauseOverlay").classList.add("hidden");
-  state.level = 1;
-  state.playerHp = 100;
-  state.enemyHp = 100;
-  state.bossHp = 600;
-  state.mode = "enemy";
-  state.runActive = true;
-  state.eligibleForOnlineRanking = true;
-  saveLocal();
-
-  showScreen("game");
-  updateBattleUI();
-  newQuestion();
-}
-
-function updateBattleUI() {
-  $("playerLabel").textContent = `Lv.${state.level} ${state.nickname}`;
-  $("levelChip").textContent = `Lv.${state.level}`;
-  $("playerHpFill").style.width =
-    `${Math.max(0,state.playerHp/state.playerMaxHp*100)}%`;
-
-  const boss = state.mode === "boss" || state.level >= 50;
-  const hp = boss ? state.bossHp : state.enemyHp;
-  const max = boss ? state.bossMaxHp : state.enemyMaxHp;
-
-  $("enemyHpFill").style.width =
-    `${Math.max(0,hp/max*100)}%`;
-
-  const img = $("enemyImage");
-  const profile = enemyProfileForLevel(state.level);
-
-  img.classList.remove("angry","dying","enraged");
-
-  if (hp <= 0 && !boss) {
-    // Only the defeated state changes to the dying illustration.
-    img.src = "./assets/goblin_dying.png";
-    img.classList.add("dying");
-    $("enemyTitle").textContent = `${profile.title}　撃破！`;
-  } else {
-    // During a fight, keep the SAME enemy image from start to finish.
-    img.src = profile.image;
-    $("enemyTitle").textContent = profile.title;
-
-    // Low HP can add a glow, but never swaps to a different enemy.
-    if (!boss && hp <= max*.5) {
-      img.classList.add("enraged");
-    }
-  }
-
-  if (boss) {
-    if (state.settings.sfx && media.bossBgm.paused) {
-      try {
-        media.bossBgm.currentTime = 0;
-        media.bossBgm.play().catch(()=>{});
-      } catch (_) {}
-    }
-  } else {
-    stopBossBgm();
-  }
-}
-
-async function newQuestion() {
-  if (!state.runActive) return;
-
-  state.answering = false;
-  clearAnswer();
-
-  $("answerPanel").classList.add("hidden");
-  $("flashNumber").textContent = "";
-  $("readyText").classList.remove("hidden");
-  $("readyText").textContent = "READY?";
-
-  const {count, interval} = getDifficulty(state.level);
-
-  state.nums = Array.from(
-    {length:count},
-    () => randomInt(1,9)
-  );
-
-  state.answer = state.nums.reduce((a,b)=>a+b,0);
-
-  // Follow the original pygame version:
-  // play the countdown audio and use its length to decide when flashing starts.
-  await readyCountdown();
-
-  if (!state.runActive) return;
-
-  $("readyText").classList.add("hidden");
-
-  for (const n of state.nums) {
-    if (!state.runActive) return;
-
-    $("flashNumber").textContent = n;
-    await pausableSleep(interval * 850);
-
-    $("flashNumber").textContent = "";
-    await pausableSleep(interval * 150);
-  }
-
-  // Original code keeps the final number context for ~0.8 s.
-  await pausableSleep(800);
-
-  if (!state.runActive) return;
-  beginAnswer();
-}
-
-function beginAnswer() {
-  state.answering = true;
-  clearAnswer();
-
-  $("flashNumber").textContent = "";
-  $("answerPanel").classList.remove("hidden");
-
-  state.answerDeadline =
-    performance.now() + LIMIT_TIME*1000;
-
-  // No text-box tap is necessary:
-  // mobile users immediately get the on-screen number pad;
-  // PC users can type digits globally.
-  tickAnswerTimer();
-}
-
-
-function tickAnswerTimer() {
-  cancelAnimationFrame(state.timerRAF);
-  const tick = () => {
-    if (!state.answering) return;
-
-    if (state.paused) {
+  if(supabaseClient && !playerNo){
+    try{
+      await registerPlayer(nickname);
+    }catch(err){
+      console.error(err);
+      openNameModal(true);
+      $("nameError").textContent =
+        "参加者登録が必要です。もう一度ニックネームを確認してください。";
       return;
     }
+  }
 
-    const remaining = Math.max(0, (state.answerDeadline - performance.now()) / 1000);
-    $("timeText").textContent = `残り ${remaining.toFixed(1)}秒`;
-    $("timeFill").style.width = `${remaining/LIMIT_TIME*100}%`;
-    $("timeFill").style.background = remaining > 3 ? "#0096ff" : "#dc3c3c";
-    if (remaining <= 0) {
-      submitAnswer(true);
-      return;
-    }
-    state.timerRAF = requestAnimationFrame(tick);
-  };
+  chosenCats = sample(window.CAT_DATA, TOTAL_STAGES);
+  stageIndex = 0;
+  remainingTime = TIME_LIMIT;
+  resultSubmitted = false;
+  mode = "RUNNING";
+  startTimestamp = performance.now();
+  setupStage();
   tick();
 }
 
-function submitAnswer(timedOut=false) {
-  if (!state.answering || state.paused) return;
+function renderPlayHeader(){
+  $("progressText").textContent =
+    `◆ ${stageIndex+1}/${TOTAL_STAGES} 匹目　残り汚れ: ${DIFFS_PER_STAGE-foundCount}`;
+  $("catTitle").textContent = `— ${currentCat ? currentCat.name : ""} —`;
+  $("tapHint").textContent = "汚れを見つけたら、右側の画像をタップ！";
+  updateTimerUI();
+}
 
-  const value = state.answerText.trim();
+function updateTimerUI(){
+  $("timerText").textContent = `⏱ ${remainingTime.toFixed(2)}s`;
+  $("timerText").classList.toggle("danger", remainingTime < 10);
+  $("timeBar").style.width = `${Math.max(0,remainingTime/TIME_LIMIT*100)}%`;
+  $("timeBar").style.background = remainingTime < 10 ? "#e66767" : "#8ec9ef";
+}
 
-  if (!timedOut && value === "") return;
-
-  state.answering = false;
-  cancelAnimationFrame(state.timerRAF);
-  state.questionsAnswered += 1;
-
-  const correct =
-    !timedOut &&
-    Number(value) === state.answer;
-
-  let damage = 0;
-
-  if (correct) {
-    // Same formula as the original Python code.
-    damage = randomInt(35,50) + state.level;
-
-    if (state.mode === "enemy") {
-      state.enemyHp -= damage;
-    } else {
-      state.bossHp -= damage;
+function tick(){
+  if(animationFrame) cancelAnimationFrame(animationFrame);
+  const loop = ()=>{
+    if(mode !== "RUNNING") return;
+    const elapsed = (performance.now()-startTimestamp)/1000;
+    remainingTime = Math.max(0,TIME_LIMIT-elapsed);
+    updateTimerUI();
+    if(remainingTime <= 0){
+      endGame(false);
+      return;
     }
-
-    hitSound();
-    vibrate(35);
-
-    showDamagePop(
-      "enemyDamagePop",
-      `-${damage} DAMAGE!`
-    );
-
-  } else {
-    // Same fixed player damage as the original Python code.
-    damage = 15;
-    state.playerHp -= damage;
-
-    missSound();
-    vibrate([65,45,65]);
-
-    showDamagePop(
-      "playerDamagePop",
-      `-${damage} DAMAGE`
-    );
-  }
-
-  updateBattleUI();
-  showJudge(correct, damage, timedOut);
+    animationFrame = requestAnimationFrame(loop);
+  };
+  animationFrame = requestAnimationFrame(loop);
 }
 
-async function showJudge(correct, damage, timedOut=false) {
-  $("judgeMark").textContent =
-    correct ? "○" : "×";
+function pointerToCanvas(e, canvas){
+  const r = canvas.getBoundingClientRect();
+  return {
+    x:(e.clientX-r.left)*(canvas.width/r.width),
+    y:(e.clientY-r.top)*(canvas.height/r.height)
+  };
+}
 
-  $("judgeMark").className =
-    `judge-mark ${correct ? "correct" : "wrong"}`;
+function onDiffPointer(e){
+  if(mode !== "RUNNING" || !originalImage) return;
+  const p = pointerToCanvas(e,diffCanvas);
 
-  if (correct) {
-    $("judgeMessage").textContent =
-      `正解！ 敵に ${damage} ダメージ`;
-    $("correctAnswer").textContent =
-      `答え：${state.answer}`;
-  } else {
-    $("judgeMessage").textContent =
-      timedOut
-        ? `時間切れ！ 自分に ${damage} ダメージ`
-        : `不正解… 自分に ${damage} ダメージ`;
+  for(let i=0;i<diffs.length;i++){
+    if(found[i]) continue;
+    const d = diffs[i];
+    if(Math.hypot(p.x-d.x,p.y-d.y) < 42){
+      found[i] = true;
+      foundCount++;
+      redrawDiff();
+      renderPlayHeader();
 
-    $("correctAnswer").textContent =
-      `正解：${state.answer}`;
-  }
-
-  $("judgeOverlay").classList.remove("hidden");
-
-  // Keep it short enough that HP/damage remain easy to follow.
-  await sleep(950);
-
-  $("judgeOverlay").classList.add("hidden");
-
-  const enemyDead =
-    state.mode === "enemy"
-      ? state.enemyHp <= 0
-      : state.bossHp <= 0;
-
-  if (enemyDead) {
-    updateBattleUI();
-    safePlay(media.death, .34);
-
-    // Let the dying illustration / "撃破!" be seen.
-    await sleep(650);
-    await handleVictory();
-
-  } else if (state.playerHp > 0) {
-    saveLocal();
-    newQuestion();
-
-  } else {
-    await finishRun(false);
+      if(foundCount === DIFFS_PER_STAGE){
+        if(stageIndex < TOTAL_STAGES-1){
+          stageIndex++;
+          setupStage();
+        }else{
+          endGame(true);
+        }
+      }
+      return;
+    }
   }
 }
 
-
-async function handleVictory() {
-  showScreen("levelup");
-  $("clearImage").classList.add("hidden");
-
-  if (state.level >= 50 && state.mode === "boss") {
-    stopBossBgm();
-    $("clearImage").classList.remove("hidden");
-    $("levelupText").textContent = "WORLD PEACE!!";
-    $("levelupSub").textContent = "ルミネ姫を救出した！";
-    levelSound();
-    await sleep(1500);
-    await finishRun(true);
-    return;
-  }
-
-  $("levelupText").textContent = `LEVEL UP! → ${state.level + 1}`;
-  $("levelupSub").textContent = "HPが少し回復した！";
-  levelSound();
-  await sleep(1500);
-
-  state.level += 1;
-  state.playerHp = Math.min(state.playerMaxHp, state.playerHp + 20);
-
-  if (state.level === 50) {
-    state.mode = "boss";
-    state.bossHp = state.bossMaxHp;
-  } else {
-    state.mode = "enemy";
-    state.enemyHp = state.enemyMaxHp;
-  }
-
-  saveLocal();
-  showScreen("game");
-  updateBattleUI();
-  newQuestion();
+function getPrize(count){
+  if(count >= 10) return "≪★ 特賞 ★≫";
+  if(count === 9) return "◇◆ すごいで賞 ◆◇";
+  if(count === 8) return "☆★ 天才で賞 ★☆";
+  if(count === 7) return "♪♪ やったで賞 ♪♪";
+  if(count === 6) return "▲▽ 頑張ったで賞 ▽▲";
+  return "◇ 参加賞 ◇";
 }
 
-async function finishRun(worldPeace=false) {
-  state.runActive = false;
-  state.paused = false;
-  state.pauseStartedAt = 0;
-  $("pauseOverlay").classList.add("hidden");
-  const achieved = Math.max(1, Math.min(50, state.level));
-  state.bestLevel = Math.max(state.bestLevel, achieved);
-  const currentPauseMs = (
-    state.paused && state.pauseStartedAt
-      ? Math.max(0, Date.now() - state.pauseStartedAt)
-      : 0
-  );
+async function endGame(success, customMessage=""){
+  if(mode === "RESULT") return;
+  mode = "RESULT";
+  if(animationFrame) cancelAnimationFrame(animationFrame);
+  if(readyTimer) clearTimeout(readyTimer);
 
-  const durationMs = Math.max(
-    0,
-    Date.now()
-      - (state.runStartedAt || Date.now())
-      - state.pausedTotalMs
-      - currentPauseMs
-  );
-  state.history.unshift({
-    level:achieved,
-    at:new Date().toISOString(),
-    worldPeace:!!worldPeace,
-    runId:state.runId,
-    durationMs,
-    questionsAnswered:state.questionsAnswered
-  });
-  state.history = state.history.slice(0,100);
-  saveLocal();
+  const cleared = success ? TOTAL_STAGES : stageIndex;
+  $("resultTitle").textContent = success
+    ? "☆ 10匹すべてクリア！ ☆"
+    : "◆ タイムアップ！ ◆";
+  $("resultPrize").textContent = getPrize(cleared);
 
-  let onlineText = "";
-  if (state.eligibleForOnlineRanking) {
-    const result = await submitOnlineScore(
-      state.nickname,
-      achieved,
-      state.runId,
-      durationMs,
-      state.questionsAnswered
-    );
-    onlineText = result.ok ? "オンラインランキングに送信しました。" : result.message;
-  } else {
-    onlineText = "バックアップ復元後の途中プレイのため、オンラインランキングには送信していません。";
+  if(customMessage){
+    $("resultDetail").textContent = customMessage;
+  }else if(success){
+    $("resultDetail").textContent =
+      `${nickname}${playerNo ? `（No.${playerNo}）` : ""} さんの記録：残り ${remainingTime.toFixed(2)} 秒`;
+  }else{
+    $("resultDetail").textContent =
+      `クリアできた猫：${cleared} / ${TOTAL_STAGES} 匹`;
   }
 
-  toast(`Lv.${achieved}で終了。${onlineText}`);
-  await loadRanking();
-  showScreen("ranking");
-}
+  showScreen("resultScreen");
 
-function quitRun() {
-  if (!state.runActive) {
-    showScreen("home");
-    return;
+  if(success && !resultSubmitted){
+    resultSubmitted = true;
+    await submitScore(Math.round(remainingTime*100)/100);
   }
-  if (confirm("このプレイを終了しますか？")) finishRun(false);
 }
 
-// ----------------------------
-// Ranking
-// ----------------------------
-function localRankKey(){ return "flashMentalYellow.localRanking.v3"; }
-
-function loadLocalRankingRuns(){
-  try {
-    return JSON.parse(localStorage.getItem(localRankKey()) || "[]");
-  } catch {
+function getLocalRanks(){
+  try{
+    return JSON.parse(localStorage.getItem(LOCAL_RANK_KEY)||"[]") || [];
+  }catch{
     return [];
   }
 }
 
-function bestRowsPerPlayer(rows){
-  const best = new Map();
+function saveLocalRank(name,time){
+  let ranks = getLocalRanks();
 
-  for(const row of rows){
-    const pid = row.player_id || row.playerId || "legacy-"+(row.nickname||"");
-    const old = best.get(pid);
+  const existing = ranks.find(r => r.nickname === name);
 
-    if(
-      !old ||
-      Number(row.level) > Number(old.level) ||
-      (
-        Number(row.level) === Number(old.level) &&
-        String(row.created_at||"") < String(old.created_at||"")
-      )
-    ){
-      best.set(pid,row);
-    }
+  if(existing){
+    existing.remaining_time =
+      Math.max(Number(existing.remaining_time)||0, time);
+  }else{
+    ranks.push({
+      nickname:name,
+      player_no:null,
+      remaining_time:time,
+      created_at:new Date().toISOString()
+    });
   }
 
-  return [...best.values()]
-    .sort((a,b)=>
-      Number(b.level)-Number(a.level) ||
-      String(a.created_at||"").localeCompare(String(b.created_at||""))
-    )
-    .slice(0,MAX_RANKING);
-}
-
-function loadLocalRanking(){
-  return bestRowsPerPlayer(loadLocalRankingRuns());
-}
-
-function saveLocalRanking(nickname,level,runId,durationMs,questionsAnswered){
-  const rows=loadLocalRankingRuns();
-
-  if(rows.some(r => r.run_id === runId)) return;
-
-  rows.push({
-    player_id:getRankingPlayerId(),
-    run_id:runId,
-    nickname,
-    level:Number(level),
-    duration_ms:Number(durationMs||0),
-    questions_answered:Number(questionsAnswered||0),
-    created_at:new Date().toISOString()
-  });
-
-  rows.sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at)));
-  localStorage.setItem(localRankKey(),JSON.stringify(rows.slice(0,3000)));
-}
-
-async function submitOnlineScore(
-  nickname,
-  level,
-  runId,
-  durationMs,
-  questionsAnswered
-) {
-  if (
-    !onlineConfigured() ||
-    state.authMode !== "anonymous-auth" ||
-    !supabaseClient ||
-    !state.authUserId
-  ) {
-    saveLocalRanking(nickname, level, runId, durationMs, questionsAnswered);
-    return {
-      ok:false,
-      message:"オンライン匿名認証が使えないため、この端末のランキングに保存しました。"
-    };
-  }
-
-  try {
-    const { error } = await supabaseClient
-      .from("flash_scores")
-      .insert({
-        player_id: state.authUserId,
-        run_id: runId,
-        nickname: cleanNickname(nickname),
-        level: Math.max(1,Math.min(50,Number(level))),
-        edition: EDITION,
-        duration_ms: Math.max(0,Math.round(Number(durationMs||0))),
-        questions_answered: Math.max(0,Math.round(Number(questionsAnswered||0))),
-        client_version: CLIENT_VERSION
-      });
-
-    if (error) {
-      // PostgreSQL unique_violation (same run_id already stored) is harmless.
-      if (error.code === "23505") {
-        return {ok:true, duplicateRun:true};
-      }
-      throw error;
-    }
-
-    return {ok:true};
-
-  } catch (error) {
-    console.error("Online score submit failed:", error);
-    saveLocalRanking(nickname, level, runId, durationMs, questionsAnswered);
-    return {
-      ok:false,
-      message:"ランキング送信に失敗したため、この端末にも記録しました。"
-    };
-  }
-}
-
-async function fetchOnlineRanking(){
-  if (
-    !onlineConfigured() ||
-    state.authMode !== "anonymous-auth" ||
-    !supabaseClient
-  ) {
-    return loadLocalRanking();
-  }
-
-  const { data, error } = await supabaseClient.rpc(
-    "get_flash_ranking",
-    { p_limit: MAX_RANKING }
+  ranks.sort((a,b)=>b.remaining_time-a.remaining_time);
+  localStorage.setItem(
+    LOCAL_RANK_KEY,
+    JSON.stringify(ranks.slice(0,MAX_RANKINGS))
   );
-
-  if (error) throw error;
-  return data || [];
 }
 
-async function loadRanking(){
-  const list=$("rankingList");
-  list.innerHTML=`<div class="rank-row"><span>…</span><span>読み込み中</span><span></span></div>`;
+async function submitScore(time){
+  if(!supabaseClient){
+    saveLocalRank(nickname,time);
+    return;
+  }
 
   try{
-    const rows=await fetchOnlineRanking();
-    list.innerHTML="";
+    await ensureAnonymousSession();
 
-    if(!rows.length){
-      list.innerHTML=`<div class="rank-row"><span>-</span><span>まだ記録がありません</span><span>-</span></div>`;
-      return;
+    const {data,error} =
+      await supabaseClient.rpc("submit_cat_score", {
+        p_remaining_time: time
+      });
+
+    if(error) throw error;
+
+    const row = Array.isArray(data) ? data[0] : null;
+    if(row && row.player_no){
+      playerNo = Number(row.player_no);
+      localStorage.setItem(PLAYER_NO_KEY,String(playerNo));
+      updateNicknameUI();
     }
-
-    rows.slice(0,MAX_RANKING).forEach((r,i)=>{
-      const row=document.createElement("div");
-      row.className=`rank-row ${i<3?"top3":""}`;
-
-      const rank=document.createElement("span");
-      const name=document.createElement("span");
-      const lv=document.createElement("span");
-
-      rank.textContent=`${i+1}位`;
-      name.textContent=String(r.nickname||"名無し");
-      name.className="rank-name";
-      lv.textContent=`Lv.${r.level}`;
-
-      row.append(rank,name,lv);
-      list.append(row);
-    });
-  }catch(error){
-    console.error("Ranking fetch failed:", error);
-    list.innerHTML=`<div class="rank-row"><span>!</span><span>ランキングを取得できませんでした</span><span></span></div>`;
+  }catch(err){
+    console.error("ranking update failed",err);
+    saveLocalRank(nickname,time);
   }
 }
 
-function updateOnlineStatus(customMessage=""){
-  const el=$("onlineStatus");
+async function loadRankings(){
+  showScreen("rankingScreen");
+  $("rankList").innerHTML =
+    '<div class="rank-loading">ランキング読み込み中…</div>';
 
-  if(customMessage){
-    el.textContent="⚠ "+customMessage;
-    el.style.background="#fff0df";
-    return;
-  }
+  let ranks = [];
 
-  if(!state.authReady){
-    el.textContent="🔐 匿名認証中…";
-    el.style.background="#eef1ff";
-    return;
-  }
+  if(supabaseClient){
+    try{
+      await ensureAnonymousSession();
 
-  if(state.authMode==="anonymous-auth"){
-    el.textContent="🔐 匿名認証済み：同名OK・1プレイヤー1ベスト表示";
-    el.style.background="#dff6df";
+      const {data,error} =
+        await supabaseClient.rpc("get_cat_ranking", {
+          p_limit: MAX_RANKINGS
+        });
+
+      if(error) throw error;
+      ranks = data || [];
+    }catch(err){
+      console.error("ranking read failed",err);
+      ranks = getLocalRanks();
+    }
   }else{
-    el.textContent="📱 端末内モード：同名OK・1プレイヤー1ベスト表示";
-    el.style.background="#efe9ba";
-  }
-}
-
-// ----------------------------
-// Backup
-// ----------------------------
-function exportBackup(){
-  saveLocal();
-  const payload={
-    app:"flash-mental-yellow",
-    exportedAt:new Date().toISOString(),
-    data:JSON.parse(localStorage.getItem(STORAGE_KEY)||"{}"),
-    localRankingRuns:loadLocalRankingRuns()
-  };
-  const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json"});
-  const a=document.createElement("a");
-  a.href=URL.createObjectURL(blob);
-  a.download=`flash-mental-backup-${new Date().toISOString().slice(0,10)}.json`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
-  toast("バックアップを書き出しました");
-}
-async function importBackup(file){
-  const text=await file.text();
-  const payload=JSON.parse(text);
-  if(payload.app!=="flash-mental-yellow" || !payload.data) throw new Error("形式が違います");
-
-  localStorage.setItem(STORAGE_KEY,JSON.stringify(payload.data));
-
-  if(Array.isArray(payload.localRankingRuns)){
-    localStorage.setItem(localRankKey(),JSON.stringify(payload.localRankingRuns.slice(0,3000)));
-  } else if(Array.isArray(payload.localRanking)){
-    // v1 backup migration.
-    const migrated = payload.localRanking.map((r,i)=>({
-      player_id:ensureLocalPlayerId(),
-      run_id:`legacy-${Date.now()}-${i}`,
-      nickname:cleanNickname(r.nickname||r.name||"名無し"),
-      level:Number(r.level||1),
-      created_at:r.created_at||new Date().toISOString(),
-      duration_ms:0,
-      questions_answered:0
-    }));
-    localStorage.setItem(localRankKey(),JSON.stringify(migrated));
+    ranks = getLocalRanks();
   }
 
-  loadLocal();
-  const resume=payload.data.resume;
-  if(resume){
-    state.level=Math.max(1,Math.min(50,Number(resume.level||1)));
-    state.playerHp=Math.max(1,Math.min(100,Number(resume.playerHp||100)));
-    state.enemyHp=Math.max(0,Math.min(100,Number(resume.enemyHp||100)));
-    state.bossHp=Math.max(0,Math.min(600,Number(resume.bossHp||600)));
-    state.mode=resume.mode==="boss"?"boss":"enemy";
-    state.runId=resume.runId || makeUUID();
-    state.runStartedAt=Number(resume.runStartedAt||Date.now());
-    state.questionsAnswered=Number(resume.questionsAnswered||0);
-    state.eligibleForOnlineRanking=false;
-  }
-  $("backupMessage").textContent="バックアップを復元しました。復元した途中プレイはオンラインランキング送信対象外です。";
-  $("backupMessage").classList.remove("hidden");
-  toast("バックアップを復元しました");
+  renderRankings(ranks);
 }
 
-// ----------------------------
-// Event wiring
-// ----------------------------
-$("nickname").addEventListener("input",updateStartButton);
-$("privacyCheck").addEventListener("change",updateStartButton);
-$("startBtn").addEventListener("click",startRun);
+function renderRankings(ranks){
+  const box = $("rankList");
+  box.innerHTML = "";
 
-$("pauseBtn").addEventListener("click",pauseGame);
-$("resumeBtn").addEventListener("click",resumeGame);
+  if(!ranks.length){
+    box.innerHTML =
+      '<div class="rank-empty">まだ記録がありません。最初のランカーになろう！</div>';
+    return;
+  }
 
-$("pauseQuitBtn").addEventListener("click",()=>{
-  resumeGame();
-  quitRun();
-});
+  ranks.forEach((r,i)=>{
+    const row = document.createElement("div");
+    row.className = "rank-row";
 
-$("answerBtn").addEventListener(
-  "click",
-  ()=>submitAnswer(false)
-);
+    const pos = document.createElement("div");
+    pos.className =
+      "rank-pos " +
+      (i===0?"gold":i===1?"silver":i===2?"bronze":"");
+    pos.textContent = `${i+1}.`;
 
-$("answerBackspaceBtn").addEventListener(
-  "click",
-  backspaceAnswer
-);
+    const name = document.createElement("div");
+    name.className = "rank-name";
+    name.textContent =
+      r.player_no
+        ? `${r.nickname}  ・ No.${r.player_no}`
+        : r.nickname;
 
-document.querySelectorAll("[data-digit]").forEach(btn=>{
-  btn.addEventListener("click",()=>{
-    appendAnswerDigit(btn.dataset.digit);
+    const time = document.createElement("div");
+    time.className = "rank-time";
+    time.textContent =
+      `${Number(r.best_remaining_time ?? r.remaining_time).toFixed(2)}s`;
+
+    row.append(pos,name,time);
+    box.appendChild(row);
   });
+}
+
+function refreshRankingMode(){
+  $("rankingMode").innerHTML = supabaseClient
+    ? "🌐 一人1件の自己ベスト方式・参加者番号つきオンラインランキング"
+    : '<span class="offline-badge">設定前：この端末だけのローカルランキング</span>';
+}
+
+$("diffCanvas").addEventListener("pointerdown",onDiffPointer);
+$("startBtn").addEventListener("click",startChallenge);
+$("rankingBtn").addEventListener("click",loadRankings);
+$("resultRankingBtn").addEventListener("click",loadRankings);
+$("backMenuBtn").addEventListener("click",()=>{mode="MENU";showScreen("menuScreen")});
+$("rankBackBtn").addEventListener("click",()=>{mode="MENU";showScreen("menuScreen")});
+$("changeNameBtn").addEventListener("click",()=>openNameModal(false));
+$("saveNameBtn").addEventListener("click",saveNickname);
+$("nicknameInput").addEventListener("keydown",e=>{
+  if(e.key==="Enter") saveNickname();
 });
 
-// PC: no input field needs focus. Just type.
-document.addEventListener("keydown",(e)=>{
-  if (!state.runActive) return;
+async function bootstrap(){
+  initSupabase();
+  updateNicknameUI();
 
-  if (e.key === "p" || e.key === "P" || e.key === "Escape") {
-    e.preventDefault();
-    togglePause();
-    return;
+  if(supabaseClient){
+    try{
+      await ensureAnonymousSession();
+      const exists = await loadMyPlayer();
+
+      // 既存の匿名ユーザーに参加者情報がない場合は
+      // 改めて注意事項を確認してもらう。
+      if(!exists){
+        openNameModal(true);
+      }
+    }catch(err){
+      console.error("Supabase auth initialization failed",err);
+      if(!nickname){
+        openNameModal(true);
+      }
+    }
+  }else if(!nickname){
+    openNameModal(true);
   }
 
-  if (!state.answering || state.paused) return;
+  refreshRankingMode();
+}
 
-  if (/^\d$/.test(e.key)) {
-    e.preventDefault();
-    appendAnswerDigit(e.key);
-    return;
-  }
-
-  if (e.key === "Backspace") {
-    e.preventDefault();
-    backspaceAnswer();
-    return;
-  }
-
-  if (e.key === "Enter" || e.key === " ") {
-    e.preventDefault();
-    submitAnswer(false);
-  }
-});
-$("rankingBtn").addEventListener("click",async()=>{await loadRanking();showScreen("ranking")});
-$("refreshRankingBtn").addEventListener("click",loadRanking);
-$("backupBtn").addEventListener("click",()=>showScreen("backup"));
-$("settingsBtn").addEventListener("click",()=>showScreen("settings"));
-$("quitRunBtn").addEventListener("click",quitRun);
-document.querySelectorAll("[data-back-home]").forEach(b=>b.addEventListener("click",()=>showScreen("home")));
-$("exportBackupBtn").addEventListener("click",exportBackup);
-$("importBackupInput").addEventListener("change",async(e)=>{
-  const f=e.target.files?.[0];
-  if(!f)return;
-  try{await importBackup(f)}catch(err){
-    $("backupMessage").textContent=`読み込みに失敗しました：${err.message}`;
-    $("backupMessage").classList.remove("hidden");
-  }
-  e.target.value="";
-});
-document.querySelectorAll("[data-font-size]").forEach(btn=>{
-  btn.addEventListener("click",()=>{
-    state.settings.fontSize=btn.dataset.fontSize;
-    applySettings();saveLocal();
-  });
-});
-$("sfxToggle").addEventListener("change",()=>{state.settings.sfx=$("sfxToggle").checked;saveLocal();beep(620,.05,.02)});
-$("vibrationToggle").addEventListener("change",()=>{state.settings.vibration=$("vibrationToggle").checked;saveLocal();vibrate(25)});
-
-loadLocal();
-updateOnlineStatus();
-updateStartButton();
-initAnonymousAuth();
+bootstrap();
 
 if("serviceWorker" in navigator){
-  window.addEventListener("load",()=>navigator.serviceWorker.register("./service-worker.js").catch(()=>{}));
+  window.addEventListener("load",()=>{
+    navigator.serviceWorker.register("./sw.js").catch(()=>{});
+  });
 }
 })();
