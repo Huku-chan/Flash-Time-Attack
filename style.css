@@ -586,3 +586,776 @@ body.game-active main{
     padding:6px 7px;
   }
 }
+
+
+/* ============================================================
+   v6: iPhone / Android 横向き 1画面フィット
+   ============================================================ */
+
+/*
+  #app には通常 safe-area padding があるため、
+  main を 100dvh にすると「100dvh + safe-area」になって
+  横向きで少しはみ出すことがあった。
+  ゲーム中は #app 自体を safe-area 内の1画面に固定する。
+*/
+body.game-active{
+  width:100%;
+  height:100svh;
+  min-height:0;
+  overflow:hidden;
+}
+
+body.game-active #app{
+  width:100%;
+  height:100svh;
+  min-height:0;
+  padding:
+    env(safe-area-inset-top)
+    env(safe-area-inset-right)
+    env(safe-area-inset-bottom)
+    env(safe-area-inset-left);
+  overflow:hidden;
+}
+
+body.game-active main{
+  width:100%;
+  height:100%;
+  min-height:0;
+  overflow:hidden;
+}
+
+#screen-game.active{
+  width:100%;
+  height:100%;
+  min-width:0;
+  min-height:0;
+  overflow:hidden;
+}
+
+/*
+  横向きスマホ:
+  横幅ではなく orientation + 高さで判定する。
+  iPhoneを横向きにすると幅が800px以上でもここが適用される。
+*/
+@media (orientation: landscape) and (max-height: 520px){
+
+  #screen-game.active{
+    grid-template-rows:auto minmax(0,1fr);
+  }
+
+  /* 上部HP欄を薄く */
+  #screen-game .battle-header{
+    min-height:34px;
+    height:34px;
+    padding:2px 7px;
+    gap:6px;
+  }
+
+  #screen-game .player-label{
+    font-size:.68rem;
+    line-height:1;
+    margin-bottom:2px;
+  }
+
+  #screen-game .hp-gauge{
+    width:min(31vw,210px);
+    max-width:none;
+    height:10px;
+    border-width:1px;
+  }
+
+  .battle-actions{
+    gap:3px;
+  }
+
+  #screen-game .level-chip{
+    padding:4px 6px;
+    border-radius:7px;
+    font-size:.66rem;
+    line-height:1;
+  }
+
+  .pause-btn{
+    min-height:25px;
+    height:25px;
+    padding:2px 6px;
+    border-width:1px;
+    border-radius:7px;
+    box-shadow:0 1px 0 #8c7600;
+    font-size:.64rem;
+    line-height:1;
+  }
+
+  /*
+    メイン部分。
+    左をフラッシュ/回答、右を敵。
+  */
+  #screen-game .battle-grid{
+    min-width:0;
+    min-height:0;
+    height:100%;
+    grid-template-columns:minmax(0,1.45fr) minmax(112px,.55fr);
+    overflow:hidden;
+  }
+
+  #screen-game .question-zone{
+    min-width:0;
+    min-height:0;
+    height:100%;
+    padding:3px 6px;
+    overflow:hidden;
+  }
+
+  #screen-game .enemy-zone{
+    min-width:0;
+    min-height:0;
+    height:100%;
+    padding:3px 5px;
+    overflow:hidden;
+  }
+
+  #screen-game .ready-text{
+    font-size:clamp(1.3rem,5.2vh,2rem);
+  }
+
+  #screen-game .flash-number{
+    font-size:clamp(5rem,44vh,10rem);
+    line-height:.82;
+  }
+
+  #screen-game .enemy-title{
+    min-height:0;
+    margin:0;
+    font-size:clamp(.52rem,2.4vh,.72rem);
+    line-height:1;
+    letter-spacing:.03em;
+  }
+
+  #screen-game .enemy-image-wrap{
+    width:100%;
+    height:min(49vh,185px);
+    min-height:0;
+    flex:0 1 auto;
+    overflow:hidden;
+  }
+
+  #screen-game .enemy-image{
+    width:auto;
+    height:auto;
+    max-width:100%;
+    max-height:100%;
+    object-fit:contain;
+  }
+
+  #screen-game .enemy-gauge{
+    width:96%;
+    height:10px;
+    margin-top:2px;
+    border-width:1px;
+    flex:0 0 auto;
+  }
+
+  /*
+    回答は横向き専用に2段キーパッド。
+    1 2 3 4 5 6
+    7 8 9 ⌫ 0 決定
+  */
+  #screen-game .answer-panel{
+    width:min(100%,560px);
+    height:100%;
+    max-height:100%;
+    gap:2px;
+    justify-content:center;
+  }
+
+  #screen-game .time-text{
+    font-size:.62rem;
+    line-height:1;
+    margin:0;
+  }
+
+  #screen-game .time-gauge{
+    width:min(100%,480px);
+    height:6px;
+    margin:0 auto 1px;
+    border-width:1px;
+  }
+
+  #screen-game .answer-display{
+    width:min(100%,480px);
+    min-height:30px;
+    height:30px;
+    margin:0 auto;
+    padding:0 5px;
+    border-width:1px;
+    border-radius:7px;
+    font-size:clamp(1.45rem,7vh,2.2rem);
+    line-height:1;
+  }
+
+  .number-pad{
+    width:min(100%,560px);
+    margin:0 auto;
+    display:grid;
+    grid-template-columns:repeat(6,minmax(0,1fr));
+    grid-template-rows:repeat(2,minmax(0,1fr));
+    gap:3px;
+  }
+
+  .number-pad button{
+    min-width:0;
+    min-height:0;
+    height:clamp(32px,10.5vh,43px);
+    padding:0 2px;
+    border-width:1px;
+    border-radius:6px;
+    box-shadow:0 1px 0 #b59a00;
+    font-size:clamp(.92rem,5.3vh,1.3rem);
+    line-height:1;
+  }
+
+  .number-pad .answer-ok-btn{
+    font-size:clamp(.62rem,3.4vh,.86rem);
+  }
+
+  .answer-help{
+    display:none;
+  }
+
+  /*
+    横向きでは「このプレイを終了」は非表示。
+    一時停止 → このプレイを終了、から操作できるので
+    画面下の1行を丸ごと節約する。
+  */
+  #screen-game > #quitRunBtn{
+    display:none;
+  }
+
+  /* 判定も小さく */
+  #screen-game .judge-overlay{
+    width:min(47vw,300px);
+    max-height:78vh;
+    padding:5px 9px;
+    border-width:2px;
+    border-radius:12px;
+  }
+
+  #screen-game .judge-mark{
+    font-size:clamp(2rem,14vh,3.8rem);
+  }
+
+  #screen-game .judge-message{
+    margin-top:1px;
+    font-size:clamp(.65rem,3.3vh,.9rem);
+  }
+
+  #screen-game .correct-answer{
+    margin-top:1px;
+    font-size:clamp(.58rem,3vh,.82rem);
+  }
+
+  .player-damage-pop{
+    top:24px;
+    font-size:clamp(.8rem,4vh,1.15rem);
+  }
+
+  .enemy-damage-pop{
+    top:46%;
+    font-size:clamp(.8rem,4vh,1.2rem);
+  }
+
+  /* 一時停止画面も横向きで高さを食わない */
+  .pause-overlay{
+    padding:
+      max(5px,env(safe-area-inset-top))
+      max(8px,env(safe-area-inset-right))
+      max(5px,env(safe-area-inset-bottom))
+      max(8px,env(safe-area-inset-left));
+  }
+
+  .pause-card{
+    width:min(72vw,460px);
+    max-height:94vh;
+    padding:8px 12px;
+    border-width:2px;
+    border-radius:14px;
+  }
+
+  .pause-icon{
+    font-size:1.55rem;
+    line-height:1;
+  }
+
+  .pause-card h2{
+    margin:2px 0 3px;
+    font-size:1.05rem;
+  }
+
+  .pause-card p{
+    margin:0 0 5px;
+    font-size:.7rem;
+    line-height:1.2;
+  }
+
+  .pause-card .primary-btn,
+  .pause-card .secondary-btn{
+    min-height:32px;
+    padding:4px 8px;
+    border-radius:9px;
+    font-size:.75rem;
+  }
+
+  .pause-card .secondary-btn{
+    margin-top:5px;
+  }
+
+  .pause-help{
+    margin-top:4px;
+    font-size:.58rem;
+  }
+}
+
+/* 特に高さが低い横向きスマホ */
+@media (orientation: landscape) and (max-height: 390px){
+
+  #screen-game .battle-header{
+    min-height:30px;
+    height:30px;
+  }
+
+  #screen-game .player-label{
+    font-size:.6rem;
+  }
+
+  #screen-game .hp-gauge{
+    height:8px;
+  }
+
+  #screen-game .enemy-image-wrap{
+    height:min(44vh,145px);
+  }
+
+  #screen-game .flash-number{
+    font-size:clamp(4.5rem,40vh,8rem);
+  }
+
+  #screen-game .answer-display{
+    height:26px;
+    min-height:26px;
+    font-size:1.35rem;
+  }
+
+  .number-pad button{
+    height:clamp(28px,9.5vh,35px);
+  }
+
+  #screen-game .time-text{
+    display:none;
+  }
+
+  #screen-game .time-gauge{
+    height:5px;
+  }
+}
+
+
+/* ============================================================
+   v7: スマホは「敵が上 / 数字・回答が下」
+   ============================================================ */
+
+/*
+  縦向きスマホ:
+  max-width 700px
+
+  横向きスマホ:
+  横幅が700pxを超えても max-height 600px + landscape で拾う。
+*/
+@media (max-width:700px), (orientation:landscape) and (max-height:600px){
+
+  body.game-active,
+  body.game-active #app,
+  body.game-active main,
+  #screen-game.active{
+    height:100svh;
+    min-height:0;
+    max-height:100svh;
+    overflow:hidden;
+  }
+
+  #screen-game.active{
+    grid-template-rows:auto minmax(0,1fr);
+  }
+
+  /* 最上段：プレイヤー情報は薄く固定 */
+  #screen-game .battle-header{
+    min-height:38px;
+    height:38px;
+    padding:3px 7px;
+    flex:0 0 auto;
+  }
+
+  #screen-game .player-label{
+    font-size:.7rem;
+    line-height:1;
+    margin-bottom:2px;
+  }
+
+  #screen-game .hp-gauge{
+    width:min(42vw,230px);
+    max-width:none;
+    height:11px;
+    border-width:1px;
+  }
+
+  .battle-actions{
+    gap:4px;
+  }
+
+  #screen-game .level-chip{
+    padding:4px 7px;
+    font-size:.68rem;
+    line-height:1;
+  }
+
+  .pause-btn{
+    min-height:27px;
+    height:27px;
+    padding:2px 7px;
+    border-width:1px;
+    border-radius:7px;
+    box-shadow:0 1px 0 #8c7600;
+    font-size:.65rem;
+    line-height:1;
+  }
+
+  /*
+    DOMでは question → enemy の順だが、
+    CSS Grid Areaで表示順を enemy → question にする。
+  */
+  #screen-game .battle-grid{
+    display:grid;
+    grid-template-columns:1fr;
+    grid-template-rows:minmax(0,38%) minmax(0,62%);
+    grid-template-areas:
+      "enemy"
+      "question";
+    width:100%;
+    height:100%;
+    min-width:0;
+    min-height:0;
+    overflow:hidden;
+    gap:0;
+  }
+
+  #screen-game .enemy-zone{
+    grid-area:enemy;
+    display:grid;
+    grid-template-rows:auto minmax(0,1fr) auto;
+    align-items:center;
+    justify-items:center;
+    width:100%;
+    height:100%;
+    min-width:0;
+    min-height:0;
+    padding:2px 8px 3px;
+    overflow:hidden;
+    border-bottom:2px solid #b79d00;
+    background:#ffd900;
+  }
+
+  #screen-game .question-zone{
+    grid-area:question;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    width:100%;
+    height:100%;
+    min-width:0;
+    min-height:0;
+    padding:3px 8px;
+    overflow:hidden;
+    background:#fff36c;
+  }
+
+  /* 敵は上側領域だけに必ず収める */
+  #screen-game .enemy-title{
+    margin:0;
+    padding:0;
+    min-height:0;
+    font-size:clamp(.62rem,2.4vw,.82rem);
+    line-height:1.05;
+  }
+
+  #screen-game .enemy-image-wrap{
+    position:relative;
+    width:100%;
+    height:100%;
+    min-height:0;
+    max-height:none;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    overflow:hidden;
+  }
+
+  #screen-game .enemy-image{
+    width:auto;
+    height:auto;
+    max-width:72%;
+    max-height:100%;
+    object-fit:contain;
+  }
+
+  #screen-game .enemy-gauge{
+    width:min(72%,360px);
+    height:11px;
+    margin:1px auto 0;
+    border-width:1px;
+  }
+
+  /* READYとフラッシュ数字は下側中央 */
+  #screen-game .ready-text{
+    font-size:clamp(1.5rem,7vw,2.5rem);
+  }
+
+  #screen-game .flash-number{
+    font-size:clamp(5.2rem,28vw,11rem);
+    line-height:.85;
+  }
+
+  /*
+    回答UIは下側62%の中だけで完結。
+    縦向きは3列、横向きは後段のmedia queryで6列。
+  */
+  #screen-game .answer-panel{
+    width:min(100%,390px);
+    height:100%;
+    max-height:100%;
+    justify-content:center;
+    gap:3px;
+    overflow:hidden;
+  }
+
+  #screen-game .time-text{
+    margin:0;
+    font-size:.68rem;
+    line-height:1;
+  }
+
+  #screen-game .time-gauge{
+    width:min(100%,360px);
+    height:7px;
+    margin:0 auto;
+    border-width:1px;
+  }
+
+  #screen-game .answer-display{
+    width:min(100%,360px);
+    min-height:34px;
+    height:34px;
+    margin:0 auto;
+    padding:0 5px;
+    border-width:1px;
+    border-radius:8px;
+    font-size:clamp(1.6rem,7vw,2.4rem);
+    line-height:1;
+  }
+
+  .number-pad{
+    width:min(100%,360px);
+    margin:0 auto;
+    grid-template-columns:repeat(3,minmax(0,1fr));
+    gap:3px;
+  }
+
+  .number-pad button{
+    min-width:0;
+    min-height:34px;
+    height:clamp(34px,5.5svh,48px);
+    padding:0 2px;
+    border-width:1px;
+    border-radius:7px;
+    box-shadow:0 1px 0 #b59a00;
+    font-size:clamp(1rem,4.6vw,1.45rem);
+    line-height:1;
+  }
+
+  .number-pad .answer-ok-btn{
+    font-size:clamp(.7rem,3.2vw,.95rem);
+  }
+
+  .answer-help{
+    display:none;
+  }
+
+  /* 下の終了ボタンは画面外要因になるのでスマホ中は隠す。
+     一時停止画面から終了できる。 */
+  #screen-game > #quitRunBtn{
+    display:none;
+  }
+
+  /* ダメージ位置も上下レイアウトに合わせる */
+  .enemy-damage-pop{
+    left:50%;
+    top:50%;
+    font-size:clamp(.95rem,4.5vw,1.5rem);
+  }
+
+  .player-damage-pop{
+    left:60%;
+    top:25px;
+    font-size:clamp(.85rem,3.8vw,1.2rem);
+  }
+}
+
+
+/* ------------------------------------------------------------
+   横向きスマホ:
+   上下配置は維持したまま、下のキーパッドだけ6列×2段
+   ------------------------------------------------------------ */
+@media (orientation:landscape) and (max-height:600px){
+
+  #screen-game .battle-header{
+    min-height:31px;
+    height:31px;
+    padding:2px 7px;
+  }
+
+  #screen-game .player-label{
+    font-size:.6rem;
+  }
+
+  #screen-game .hp-gauge{
+    height:8px;
+  }
+
+  #screen-game .level-chip{
+    font-size:.6rem;
+    padding:3px 5px;
+  }
+
+  .pause-btn{
+    min-height:23px;
+    height:23px;
+    padding:1px 6px;
+    font-size:.58rem;
+  }
+
+  /*
+    横向きでは敵を約36%、回答/数字を64%。
+    低い画面でも数字パッドを下に入れやすくする。
+  */
+  #screen-game .battle-grid{
+    grid-template-rows:minmax(0,36%) minmax(0,64%);
+  }
+
+  #screen-game .enemy-zone{
+    padding:1px 7px 2px;
+  }
+
+  #screen-game .enemy-title{
+    font-size:clamp(.5rem,2.2vh,.68rem);
+  }
+
+  #screen-game .enemy-image{
+    max-width:54%;
+    max-height:100%;
+  }
+
+  #screen-game .enemy-gauge{
+    width:min(54%,330px);
+    height:8px;
+  }
+
+  #screen-game .question-zone{
+    padding:2px 7px;
+  }
+
+  #screen-game .ready-text{
+    font-size:clamp(1.25rem,6vh,1.9rem);
+  }
+
+  #screen-game .flash-number{
+    font-size:clamp(4.5rem,32vh,8.5rem);
+  }
+
+  #screen-game .answer-panel{
+    width:min(100%,620px);
+    gap:2px;
+  }
+
+  #screen-game .time-text{
+    font-size:.56rem;
+  }
+
+  #screen-game .time-gauge{
+    width:min(100%,520px);
+    height:5px;
+  }
+
+  #screen-game .answer-display{
+    width:min(100%,520px);
+    min-height:27px;
+    height:27px;
+    font-size:clamp(1.25rem,6vh,1.9rem);
+  }
+
+  .number-pad{
+    width:min(100%,620px);
+    display:grid;
+    grid-template-columns:repeat(6,minmax(0,1fr));
+    grid-template-rows:repeat(2,minmax(0,1fr));
+    gap:3px;
+  }
+
+  .number-pad button{
+    min-height:0;
+    height:clamp(28px,8.5vh,37px);
+    font-size:clamp(.82rem,4.3vh,1.12rem);
+  }
+
+  .number-pad .answer-ok-btn{
+    font-size:clamp(.57rem,3vh,.78rem);
+  }
+}
+
+
+/* かなり高さの低い端末 */
+@media (orientation:landscape) and (max-height:390px){
+
+  #screen-game .battle-header{
+    height:28px;
+    min-height:28px;
+  }
+
+  #screen-game .battle-grid{
+    grid-template-rows:minmax(0,34%) minmax(0,66%);
+  }
+
+  #screen-game .enemy-image{
+    max-width:47%;
+  }
+
+  #screen-game .enemy-gauge{
+    width:min(47%,300px);
+    height:6px;
+  }
+
+  #screen-game .enemy-title{
+    font-size:.48rem;
+  }
+
+  #screen-game .time-text{
+    display:none;
+  }
+
+  #screen-game .answer-display{
+    min-height:24px;
+    height:24px;
+    font-size:1.2rem;
+  }
+
+  .number-pad button{
+    height:clamp(25px,8vh,31px);
+  }
+}
