@@ -72,9 +72,10 @@
       <!-- ゲーム -->
       <section id="screen-game" class="screen">
         <div class="battle-header">
-          <div>
+          <div class="player-status">
             <div id="playerLabel" class="player-label">Lv.1 勇者</div>
             <div class="gauge hp-gauge"><div id="playerHpFill"></div></div>
+            <div id="playerDamagePop" class="damage-pop player-damage-pop"></div>
           </div>
           <div class="level-chip" id="levelChip">Lv.1</div>
         </div>
@@ -87,11 +88,27 @@
             <div id="answerPanel" class="answer-panel hidden">
               <div id="timeText" class="time-text">残り 10.0秒</div>
               <div class="gauge time-gauge"><div id="timeFill"></div></div>
-              <input id="answerInput" class="answer-input"
-                     inputmode="numeric" pattern="[0-9]*"
-                     enterkeyhint="done" autocomplete="off"
-                     maxlength="6" placeholder="答え">
-              <button id="answerBtn" class="primary-btn">回答</button>
+
+              <div id="answerDisplay" class="answer-display" aria-live="polite">
+                <span id="answerDigits"></span><span class="answer-cursor">_</span>
+              </div>
+
+              <div class="number-pad" aria-label="数字入力">
+                <button type="button" data-digit="1">1</button>
+                <button type="button" data-digit="2">2</button>
+                <button type="button" data-digit="3">3</button>
+                <button type="button" data-digit="4">4</button>
+                <button type="button" data-digit="5">5</button>
+                <button type="button" data-digit="6">6</button>
+                <button type="button" data-digit="7">7</button>
+                <button type="button" data-digit="8">8</button>
+                <button type="button" data-digit="9">9</button>
+                <button type="button" id="answerBackspaceBtn">⌫</button>
+                <button type="button" data-digit="0">0</button>
+                <button type="button" id="answerBtn" class="answer-ok-btn">決定</button>
+              </div>
+
+              <div class="answer-help">PCは数字キー → Enterでも回答できます</div>
             </div>
           </div>
 
@@ -99,6 +116,7 @@
             <div id="enemyTitle" class="enemy-title">ENEMY</div>
             <div class="enemy-image-wrap">
               <img id="enemyImage" class="enemy-image" src="./assets/goblin.png" alt="敵">
+              <div id="enemyDamagePop" class="damage-pop enemy-damage-pop"></div>
             </div>
             <div class="gauge enemy-gauge"><div id="enemyHpFill"></div></div>
           </div>
@@ -106,6 +124,7 @@
 
         <div id="judgeOverlay" class="judge-overlay hidden">
           <div id="judgeMark" class="judge-mark">○</div>
+          <div id="judgeMessage" class="judge-message"></div>
           <div id="correctAnswer" class="correct-answer"></div>
         </div>
 

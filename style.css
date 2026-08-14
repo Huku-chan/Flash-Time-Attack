@@ -184,3 +184,318 @@ main{max-width:960px;margin:auto;padding:8px 16px 32px}
 @media(max-width:650px){
   .enemy-image-wrap{height:205px}
 }
+
+
+/* ============================================================
+   v4: 元ゲーム感 + スマホ1画面バトル
+   ============================================================ */
+
+body.game-active{
+  overflow:hidden;
+  overscroll-behavior:none;
+  background:#ffe000;
+}
+body.game-active .topbar{
+  display:none;
+}
+body.game-active main{
+  width:100%;
+  max-width:none;
+  height:100dvh;
+  padding:0;
+  margin:0;
+  overflow:hidden;
+}
+
+#screen-game.active{
+  position:relative;
+  display:grid;
+  grid-template-rows:auto minmax(0,1fr) auto;
+  width:100%;
+  height:100dvh;
+  min-height:0;
+  overflow:hidden;
+}
+
+#screen-game .battle-header{
+  position:relative;
+  margin:0;
+  padding:6px 10px;
+  min-height:52px;
+  background:#fff8a6;
+  border-bottom:2px solid #aa9000;
+  z-index:3;
+}
+.player-status{
+  position:relative;
+  min-width:0;
+}
+#screen-game .player-label{
+  font-size:.92rem;
+  margin-bottom:3px;
+}
+#screen-game .hp-gauge{
+  height:18px;
+  max-width:220px;
+}
+#screen-game .level-chip{
+  padding:7px 10px;
+  border-radius:11px;
+  font-size:.88rem;
+}
+
+#screen-game .battle-grid{
+  display:grid;
+  grid-template-columns:minmax(0,1.22fr) minmax(125px,.78fr);
+  width:100%;
+  height:100%;
+  min-height:0;
+  border:0;
+  border-radius:0;
+  box-shadow:none;
+  overflow:hidden;
+}
+
+#screen-game .question-zone{
+  min-width:0;
+  min-height:0;
+  height:100%;
+  padding:7px;
+  overflow:hidden;
+  justify-content:center;
+}
+#screen-game .enemy-zone{
+  position:relative;
+  min-width:0;
+  min-height:0;
+  height:100%;
+  padding:6px;
+  overflow:hidden;
+}
+#screen-game .enemy-title{
+  font-size:clamp(.68rem,2.8vw,.9rem);
+  text-align:center;
+  line-height:1.15;
+}
+#screen-game .enemy-image-wrap{
+  position:relative;
+  width:100%;
+  height:min(40dvh,280px);
+  min-height:100px;
+}
+#screen-game .enemy-image{
+  max-height:100%;
+  max-width:100%;
+}
+#screen-game .enemy-gauge{
+  height:16px;
+  width:95%;
+}
+
+#screen-game .ready-text{
+  font-size:clamp(1.6rem,7vw,2.8rem);
+}
+#screen-game .flash-number{
+  font-size:clamp(5.4rem,25vw,12rem);
+  line-height:.9;
+}
+
+#screen-game .answer-panel{
+  width:min(100%,340px);
+  max-height:100%;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  gap:5px;
+}
+#screen-game .time-text{
+  margin:0;
+  font-size:clamp(.8rem,3.2vw,1rem);
+}
+#screen-game .time-gauge{
+  height:11px;
+  margin:0 0 2px;
+}
+.answer-display{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  min-height:48px;
+  width:100%;
+  padding:2px 8px;
+  border:2px solid #d4b700;
+  border-radius:12px;
+  background:#fff;
+  color:#3264fa;
+  font-weight:1000;
+  font-size:clamp(2rem,9vw,3.8rem);
+  line-height:1;
+}
+.answer-cursor{
+  color:#777;
+  animation:answerBlink .75s steps(1) infinite;
+}
+@keyframes answerBlink{
+  50%{opacity:0}
+}
+.number-pad{
+  width:100%;
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:4px;
+}
+.number-pad button{
+  min-width:0;
+  min-height:clamp(36px,6.1dvh,54px);
+  border:1px solid #a89100;
+  border-radius:9px;
+  background:#fffdf1;
+  color:#1b1b1b;
+  font-weight:1000;
+  font-size:clamp(1.15rem,5vw,1.65rem);
+  box-shadow:0 2px 0 #b59a00;
+  touch-action:manipulation;
+}
+.number-pad button:active{
+  transform:translateY(2px);
+  box-shadow:none;
+}
+.number-pad .answer-ok-btn{
+  background:#ef5c21;
+  color:#fff;
+  border-color:#b83900;
+  box-shadow:0 2px 0 #9a3100;
+  font-size:clamp(.85rem,3.5vw,1.1rem);
+}
+.answer-help{
+  font-size:clamp(.56rem,2.4vw,.72rem);
+  color:#6b5d00;
+  line-height:1.15;
+}
+
+#screen-game > .text-btn{
+  margin:0;
+  padding:5px;
+  min-height:28px;
+  background:#fff8a6;
+  font-size:.74rem;
+  border-top:1px solid #c9af00;
+}
+
+/* Damage is shown where it happened. */
+.damage-pop{
+  position:absolute;
+  z-index:12;
+  opacity:0;
+  pointer-events:none;
+  white-space:nowrap;
+  font-weight:1000;
+  text-shadow:
+    -2px -2px 0 #fff,
+     2px -2px 0 #fff,
+    -2px  2px 0 #fff,
+     2px  2px 0 #fff;
+}
+.damage-pop.pop{
+  animation:damagePop .82s ease-out both;
+}
+@keyframes damagePop{
+  0%{opacity:0;transform:translate(-50%,12px) scale(.72)}
+  18%{opacity:1;transform:translate(-50%,-3px) scale(1.12)}
+  70%{opacity:1;transform:translate(-50%,-18px) scale(1)}
+  100%{opacity:0;transform:translate(-50%,-34px) scale(.95)}
+}
+.player-damage-pop{
+  left:55%;
+  top:40px;
+  color:#d00000;
+  font-size:clamp(1.05rem,4vw,1.5rem);
+}
+.enemy-damage-pop{
+  left:50%;
+  top:47%;
+  color:#d00000;
+  font-size:clamp(1rem,4.4vw,1.7rem);
+}
+
+/* The result no longer covers the whole game, so HP loss is visible. */
+#screen-game .judge-overlay{
+  position:absolute;
+  inset:auto auto 50% 50%;
+  transform:translate(-50%,50%);
+  width:min(78vw,340px);
+  padding:10px 14px;
+  border-radius:18px;
+  background:rgba(24,24,24,.93);
+  border:3px solid #ffe000;
+  color:#fff;
+  z-index:25;
+  text-align:center;
+  pointer-events:none;
+  box-shadow:0 12px 36px #0007;
+}
+#screen-game .judge-mark{
+  font-size:clamp(2.8rem,12vw,5rem);
+  line-height:.9;
+}
+#screen-game .judge-message{
+  margin-top:3px;
+  font-size:clamp(.9rem,3.7vw,1.15rem);
+  font-weight:900;
+}
+#screen-game .correct-answer{
+  margin-top:3px;
+  font-size:clamp(.82rem,3.2vw,1rem);
+  font-weight:800;
+  color:#ffe56b;
+}
+
+/* Keep a late-stage enemy visually angry without swapping to another enemy. */
+.enemy-image.enraged{
+  filter:
+    drop-shadow(0 0 12px rgba(210,0,0,.34))
+    drop-shadow(0 10px 8px rgba(90,20,0,.25));
+}
+
+/* Phone: stay in two columns so the entire game fits without scrolling. */
+@media(max-width:650px){
+  #screen-game .battle-grid{
+    grid-template-columns:minmax(0,1.24fr) minmax(118px,.76fr);
+    min-height:0;
+  }
+  #screen-game .question-zone{
+    min-height:0;
+    padding:5px;
+  }
+  #screen-game .enemy-zone{
+    min-height:0;
+    padding:4px;
+  }
+  #screen-game .enemy-image-wrap{
+    height:min(34dvh,220px);
+  }
+}
+
+@media(max-height:700px){
+  #screen-game .battle-header{
+    min-height:44px;
+    padding:3px 8px;
+  }
+  #screen-game .hp-gauge{
+    height:14px;
+  }
+  #screen-game .enemy-image-wrap{
+    height:min(30dvh,180px);
+  }
+  #screen-game .answer-display{
+    min-height:38px;
+    font-size:clamp(1.6rem,7vw,2.8rem);
+  }
+  .number-pad button{
+    min-height:34px;
+  }
+  #screen-game > .text-btn{
+    min-height:24px;
+    padding:2px;
+  }
+}

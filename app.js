@@ -11,7 +11,7 @@ const LEGACY_STORAGE_KEYS = [
 ];
 const LOCAL_PLAYER_ID_KEY = "flashMentalYellow.localFallbackPlayerId.v1";
 const EDITION = "yellow";
-const CLIENT_VERSION = "web-v2.0";
+const CLIENT_VERSION = "web-v4.0";
 const MAX_RANKING = 1000;
 const LIMIT_TIME = 10.0;
 
@@ -34,6 +34,7 @@ const state = {
   mode: "enemy",
   nums: [],
   answer: 0,
+  answerText: "",
   answering: false,
   answerDeadline: 0,
   timerRAF: null,
@@ -51,7 +52,7 @@ const state = {
 let audioCtx = null;
 
 const media = {
-  ready: new Audio("./assets/ready.wav"),
+  ready: new Audio("./assets/ready_countdown.mp3"),
   go: new Audio("./assets/go.wav"),
   correct: new Audio("./assets/correct.mp3"),
   wrong: new Audio("./assets/wrong.mp3"),
@@ -59,6 +60,8 @@ const media = {
   death: new Audio("./assets/enemy_death.mp3"),
   bossBgm: new Audio("./assets/boss_bgm.mp3")
 };
+media.ready.preload = "auto";
+media.go.preload = "auto";
 media.bossBgm.loop = true;
 media.bossBgm.volume = 0.26;
 
@@ -82,6 +85,7 @@ function stopBossBgm() {
 
 function showScreen(name) {
   screens.forEach(s => s.classList.toggle("active", s.id === `screen-${name}`));
+  document.body.classList.toggle("game-active", name === "game");
 }
 
 function toast(message) {
@@ -112,9 +116,43 @@ function beep(freq=440, dur=0.07, gain=0.035, type="sine") {
   } catch (_) {}
 }
 
-function readySound() {
-  safePlay(media.ready, .38);
-  setTimeout(() => safePlay(media.go, .34), 300);
+async function readyCountdown() {
+  // Original pygame behavior:
+  // ready_se.play()
+  // READY_DELAY = ready_se.get_length() - 1.8
+  //
+  // The original ready sound is about 6 seconds long, so the numbers
+  // begin about 4.2 seconds after READY? appears, while the tail of
+  // the countdown sound continues naturally.
+  safePlay(media.ready, .42);
+
+  let duration = Number(media.ready.duration);
+
+  if (!Number.isFinite(duration) || duration <= 0) {
+    await new Promise(resolve => {
+      let done = false;
+
+      const finish = () => {
+        if (done) return;
+        done = true;
+        media.ready.removeEventListener("loadedmetadata", finish);
+        resolve();
+      };
+
+      media.ready.addEventListener("loadedmetadata", finish, {once:true});
+      setTimeout(finish, 700);
+    });
+
+    duration = Number(media.ready.duration);
+  }
+
+  const readyDelaySec = (
+    Number.isFinite(duration) && duration > 1.8
+      ? Math.max(0, duration - 1.8)
+      : 4.2
+  );
+
+  await sleep(readyDelaySec * 1000);
 }
 function hitSound() {
   safePlay(media.correct, .38);
@@ -340,6 +378,77 @@ function updateStartButton() {
   );
 }
 
+function renderAnswer() {
+  $("answerDigits").textContent = state.answerText;
+}
+
+function clearAnswer() {
+  state.answerText = "";
+  renderAnswer();
+}
+
+function appendAnswerDigit(digit) {
+  if (!state.answering) return;
+  if (!/^\d$/.test(String(digit))) return;
+  if (state.answerText.length >= 6) return;
+
+  state.answerText += String(digit);
+  renderAnswer();
+  beep(430 + Number(digit)*14, .025, .012, "square");
+}
+
+function backspaceAnswer() {
+  if (!state.answering) return;
+  state.answerText = state.answerText.slice(0,-1);
+  renderAnswer();
+}
+
+function enemyProfileForLevel(level) {
+  // Keep the enemy progression monotonic.
+  // HP changes never swap a strong enemy back to a weaker character.
+  if (level >= 50) {
+    return {
+      title: "FINAL BOSS",
+      image: "./assets/boss.png",
+      tier: "boss"
+    };
+  }
+
+  if (level >= 35) {
+    return {
+      title: "狂戦士ゴブリン",
+      image: "./assets/goblin_angry.png",
+      tier: "berserker"
+    };
+  }
+
+  if (level >= 20) {
+    return {
+      title: "武装ゴブリン",
+      image: "./assets/goblin4.png",
+      tier: "armored"
+    };
+  }
+
+  return {
+    title: "ゴブリン",
+    image: "./assets/goblin.png",
+    tier: "normal"
+  };
+}
+
+function showDamagePop(id, text) {
+  const el = $(id);
+  if (!el) return;
+
+  el.textContent = text;
+  el.classList.remove("pop");
+
+  // Restart CSS animation reliably.
+  void el.offsetWidth;
+  el.classList.add("pop");
+}
+
 function startRun() {
   const nickname = cleanNickname($("nickname").value);
   if (!nickname || !$("privacyCheck").checked) return;
@@ -366,20 +475,38 @@ function startRun() {
 function updateBattleUI() {
   $("playerLabel").textContent = `Lv.${state.level} ${state.nickname}`;
   $("levelChip").textContent = `Lv.${state.level}`;
-  $("playerHpFill").style.width = `${Math.max(0,state.playerHp/state.playerMaxHp*100)}%`;
+  $("playerHpFill").style.width =
+    `${Math.max(0,state.playerHp/state.playerMaxHp*100)}%`;
 
-  const boss = state.mode === "boss";
-  $("enemyTitle").textContent = boss ? "FINAL BOSS" : "ENEMY";
-
+  const boss = state.mode === "boss" || state.level >= 50;
   const hp = boss ? state.bossHp : state.enemyHp;
   const max = boss ? state.bossMaxHp : state.enemyMaxHp;
-  $("enemyHpFill").style.width = `${Math.max(0,hp/max*100)}%`;
+
+  $("enemyHpFill").style.width =
+    `${Math.max(0,hp/max*100)}%`;
 
   const img = $("enemyImage");
-  img.classList.remove("angry","dying");
+  const profile = enemyProfileForLevel(state.level);
+
+  img.classList.remove("angry","dying","enraged");
+
+  if (hp <= 0 && !boss) {
+    // Only the defeated state changes to the dying illustration.
+    img.src = "./assets/goblin_dying.png";
+    img.classList.add("dying");
+    $("enemyTitle").textContent = `${profile.title}　撃破！`;
+  } else {
+    // During a fight, keep the SAME enemy image from start to finish.
+    img.src = profile.image;
+    $("enemyTitle").textContent = profile.title;
+
+    // Low HP can add a glow, but never swaps to a different enemy.
+    if (!boss && hp <= max*.5) {
+      img.classList.add("enraged");
+    }
+  }
 
   if (boss) {
-    img.src = "./assets/boss.png";
     if (state.settings.sfx && media.bossBgm.paused) {
       try {
         media.bossBgm.currentTime = 0;
@@ -388,60 +515,70 @@ function updateBattleUI() {
     }
   } else {
     stopBossBgm();
-    if (hp <= 0) {
-      img.src = "./assets/goblin_dying.png";
-      img.classList.add("dying");
-    } else if (hp <= max * .5) {
-      img.src = "./assets/goblin_angry.png";
-      img.classList.add("angry");
-    } else if (state.level >= 30) {
-      img.src = "./assets/goblin4.png";
-    } else {
-      img.src = "./assets/goblin.png";
-    }
   }
 }
 
 async function newQuestion() {
   if (!state.runActive) return;
+
   state.answering = false;
+  clearAnswer();
+
   $("answerPanel").classList.add("hidden");
   $("flashNumber").textContent = "";
   $("readyText").classList.remove("hidden");
   $("readyText").textContent = "READY?";
-  $("answerInput").value = "";
 
   const {count, interval} = getDifficulty(state.level);
-  state.nums = Array.from({length:count}, () => randomInt(1,9));
+
+  state.nums = Array.from(
+    {length:count},
+    () => randomInt(1,9)
+  );
+
   state.answer = state.nums.reduce((a,b)=>a+b,0);
 
-  readySound();
-  await sleep(520);
+  // Follow the original pygame version:
+  // play the countdown audio and use its length to decide when flashing starts.
+  await readyCountdown();
 
   if (!state.runActive) return;
+
   $("readyText").classList.add("hidden");
 
   for (const n of state.nums) {
     if (!state.runActive) return;
+
     $("flashNumber").textContent = n;
     await sleep(interval * 850);
+
     $("flashNumber").textContent = "";
     await sleep(interval * 150);
   }
 
+  // Original code keeps the final number context for ~0.8 s.
   await sleep(800);
+
   if (!state.runActive) return;
   beginAnswer();
 }
 
 function beginAnswer() {
   state.answering = true;
+  clearAnswer();
+
   $("flashNumber").textContent = "";
   $("answerPanel").classList.remove("hidden");
-  state.answerDeadline = performance.now() + LIMIT_TIME*1000;
-  $("answerInput").focus({preventScroll:true});
+
+  state.answerDeadline =
+    performance.now() + LIMIT_TIME*1000;
+
+  // No text-box tap is necessary:
+  // mobile users immediately get the on-screen number pad;
+  // PC users can type digits globally.
   tickAnswerTimer();
 }
+
 
 function tickAnswerTimer() {
   cancelAnimationFrame(state.timerRAF);
@@ -462,52 +599,108 @@ function tickAnswerTimer() {
 
 function submitAnswer(timedOut=false) {
   if (!state.answering) return;
-  const value = $("answerInput").value.trim();
+
+  const value = state.answerText.trim();
+
   if (!timedOut && value === "") return;
 
   state.answering = false;
   cancelAnimationFrame(state.timerRAF);
   state.questionsAnswered += 1;
 
-  const correct = !timedOut && Number(value) === state.answer;
+  const correct =
+    !timedOut &&
+    Number(value) === state.answer;
+
+  let damage = 0;
+
   if (correct) {
-    const dmg = randomInt(35,50) + state.level;
-    if (state.mode === "enemy") state.enemyHp -= dmg;
-    else state.bossHp -= dmg;
+    // Same formula as the original Python code.
+    damage = randomInt(35,50) + state.level;
+
+    if (state.mode === "enemy") {
+      state.enemyHp -= damage;
+    } else {
+      state.bossHp -= damage;
+    }
+
     hitSound();
     vibrate(35);
+
+    showDamagePop(
+      "enemyDamagePop",
+      `-${damage} DAMAGE!`
+    );
+
   } else {
-    state.playerHp -= 15;
+    // Same fixed player damage as the original Python code.
+    damage = 15;
+    state.playerHp -= damage;
+
     missSound();
     vibrate([65,45,65]);
+
+    showDamagePop(
+      "playerDamagePop",
+      `-${damage} DAMAGE`
+    );
   }
 
   updateBattleUI();
-  showJudge(correct);
+  showJudge(correct, damage, timedOut);
 }
 
-async function showJudge(correct) {
-  $("judgeMark").textContent = correct ? "○" : "×";
-  $("judgeMark").className = `judge-mark ${correct ? "correct" : "wrong"}`;
-  $("correctAnswer").textContent = state.answer;
+async function showJudge(correct, damage, timedOut=false) {
+  $("judgeMark").textContent =
+    correct ? "○" : "×";
+
+  $("judgeMark").className =
+    `judge-mark ${correct ? "correct" : "wrong"}`;
+
+  if (correct) {
+    $("judgeMessage").textContent =
+      `正解！ 敵に ${damage} ダメージ`;
+    $("correctAnswer").textContent =
+      `答え：${state.answer}`;
+  } else {
+    $("judgeMessage").textContent =
+      timedOut
+        ? `時間切れ！ 自分に ${damage} ダメージ`
+        : `不正解… 自分に ${damage} ダメージ`;
+
+    $("correctAnswer").textContent =
+      `正解：${state.answer}`;
+  }
+
   $("judgeOverlay").classList.remove("hidden");
-  await sleep(1200);
+
+  // Keep it short enough that HP/damage remain easy to follow.
+  await sleep(950);
+
   $("judgeOverlay").classList.add("hidden");
 
-  const enemyDead = state.mode === "enemy" ? state.enemyHp <= 0 : state.bossHp <= 0;
+  const enemyDead =
+    state.mode === "enemy"
+      ? state.enemyHp <= 0
+      : state.bossHp <= 0;
 
   if (enemyDead) {
     updateBattleUI();
     safePlay(media.death, .34);
-    await sleep(350);
+
+    // Let the dying illustration / "撃破!" be seen.
+    await sleep(650);
     await handleVictory();
+
   } else if (state.playerHp > 0) {
     saveLocal();
     newQuestion();
+
   } else {
     await finishRun(false);
   }
 }
+
 
 async function handleVictory() {
   showScreen("levelup");
@@ -851,9 +1044,43 @@ async function importBackup(file){
 $("nickname").addEventListener("input",updateStartButton);
 $("privacyCheck").addEventListener("change",updateStartButton);
 $("startBtn").addEventListener("click",startRun);
-$("answerBtn").addEventListener("click",()=>submitAnswer(false));
-$("answerInput").addEventListener("keydown",(e)=>{
-  if(e.key==="Enter"){e.preventDefault();submitAnswer(false)}
+
+$("answerBtn").addEventListener(
+  "click",
+  ()=>submitAnswer(false)
+);
+
+$("answerBackspaceBtn").addEventListener(
+  "click",
+  backspaceAnswer
+);
+
+document.querySelectorAll("[data-digit]").forEach(btn=>{
+  btn.addEventListener("click",()=>{
+    appendAnswerDigit(btn.dataset.digit);
+  });
+});
+
+// PC: no input field needs focus. Just type.
+document.addEventListener("keydown",(e)=>{
+  if (!state.runActive || !state.answering) return;
+
+  if (/^\d$/.test(e.key)) {
+    e.preventDefault();
+    appendAnswerDigit(e.key);
+    return;
+  }
+
+  if (e.key === "Backspace") {
+    e.preventDefault();
+    backspaceAnswer();
+    return;
+  }
+
+  if (e.key === "Enter" || e.key === " ") {
+    e.preventDefault();
+    submitAnswer(false);
+  }
 });
 $("rankingBtn").addEventListener("click",async()=>{await loadRanking();showScreen("ranking")});
 $("refreshRankingBtn").addEventListener("click",loadRanking);

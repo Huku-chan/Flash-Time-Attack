@@ -1,4 +1,4 @@
-const CACHE_NAME="flash-mental-yellow-v3";
+const CACHE_NAME="flash-mental-yellow-v4";
 const ASSETS=[
   "./",
   "./index.html",
@@ -13,7 +13,8 @@ const ASSETS=[
   "./assets/goblin_dying.png",
   "./assets/goblin4.png",
   "./assets/boss.png",
-  "./assets/lumine.png"
+  "./assets/lumine.png",
+  "./assets/ready_countdown.mp3"
 ];
 self.addEventListener("install",event=>{
   event.waitUntil(caches.open(CACHE_NAME).then(cache=>cache.addAll(ASSETS)));
