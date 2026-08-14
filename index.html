@@ -57,6 +57,10 @@
           </div>
 
           <div id="onlineStatus" class="status-pill">ランキング接続を確認中…</div>
+          <div class="online-tools">
+            <button id="testOnlineBtn" class="mini-btn" type="button">🌐 オンライン接続テスト</button>
+            <span id="pendingScoreStatus" class="pending-score-status"></span>
+          </div>
 
           <div class="anonymous-id-note">
             <strong>ニックネームは重複してOKです。</strong>
@@ -95,8 +99,18 @@
               <div class="gauge time-gauge"><div id="timeFill"></div></div>
 
               <div id="answerDisplay" class="answer-display" aria-live="polite">
-                <span id="answerDigits"></span><span class="answer-cursor">_</span>
+                <span class="answer-value">
+                  <span id="answerDigits"></span><span class="answer-cursor">_</span>
+                </span>
+                <button
+                  id="voiceAnswerBtn"
+                  class="voice-answer-btn"
+                  type="button"
+                  aria-label="音声で回答"
+                  title="マイクで答えを入力"
+                >🎤</button>
               </div>
+              <div id="voiceStatus" class="voice-status" aria-live="polite"></div>
 
               <div class="number-pad" aria-label="数字入力">
                 <button type="button" data-digit="1">1</button>
@@ -164,6 +178,7 @@
           <h2>🏆 YELLOW RANKING</h2>
           <span></span>
         </div>
+        <div id="rankingSource" class="ranking-source">接続先を確認中…</div>
         <p class="ranking-note">上位1000件。ニックネームは公開表示されます。</p>
         <div id="rankingList" class="ranking-list"></div>
         <button id="refreshRankingBtn" class="secondary-btn wide">更新</button>

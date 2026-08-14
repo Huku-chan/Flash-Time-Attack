@@ -11,7 +11,7 @@ const LEGACY_STORAGE_KEYS = [
 ];
 const LOCAL_PLAYER_ID_KEY = "flashMentalYellow.localFallbackPlayerId.v1";
 const EDITION = "yellow";
-const CLIENT_VERSION = "web-v9.0";
+const CLIENT_VERSION = "web-v11.0";
 const MAX_RANKING = 1000;
 const LIMIT_TIME = 10.0;
 
@@ -21,6 +21,8 @@ const state = {
   localPlayerId: "",
   authReady: false,
   authMode: "initializing",
+  onlineVerified: false,
+  onlineError: "",
   runId: "",
   runStartedAt: 0,
   questionsAnswered: 0,
@@ -46,6 +48,9 @@ const state = {
   readyAudio: null,
   readyAudioShouldResume: false,
   questionSerial: 0,
+  voiceRecognition: null,
+  voiceListening: false,
+  voiceResultPending: false,
   runActive: false,
   eligibleForOnlineRanking: true,
   bestLevel: 0,
@@ -331,6 +336,43 @@ function ensureLocalPlayerId() {
   return id;
 }
 
+
+const PENDING_ONLINE_KEY = "flashMentalYellow.pendingOnlineScores.v1";
+
+function loadPendingOnlineScores() {
+  try {
+    return JSON.parse(localStorage.getItem(PENDING_ONLINE_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function savePendingOnlineScores(rows) {
+  localStorage.setItem(
+    PENDING_ONLINE_KEY,
+    JSON.stringify((rows || []).slice(-200))
+  );
+  updatePendingScoreStatus();
+}
+
+function queuePendingOnlineScore(row) {
+  const rows = loadPendingOnlineScores();
+
+  if (!rows.some(r => r.run_id === row.run_id)) {
+    rows.push(row);
+  }
+
+  savePendingOnlineScores(rows);
+}
+
+function updatePendingScoreStatus() {
+  const el = $("pendingScoreStatus");
+  if (!el) return;
+
+  const n = loadPendingOnlineScores().length;
+  el.textContent = n > 0 ? `未送信スコア ${n}件` : "";
+}
+
 let supabaseClient = null;
 
 function onlineConfigured() {
@@ -347,22 +389,131 @@ function getRankingPlayerId() {
   return state.authUserId || state.localPlayerId || ensureLocalPlayerId();
 }
 
+
+async function verifyOnlineRankingConnection() {
+  state.onlineVerified = false;
+  state.onlineError = "";
+
+  if (!onlineConfigured()) {
+    state.onlineError = "config.js のオンライン設定が未完了です";
+    return false;
+  }
+
+  if (!supabaseClient || !state.authUserId) {
+    state.onlineError = "匿名認証が完了していません";
+    return false;
+  }
+
+  try {
+    const { error } = await supabaseClient.rpc(
+      "get_flash_ranking",
+      { p_limit: 1 }
+    );
+
+    if (error) throw error;
+
+    state.onlineVerified = true;
+    state.onlineError = "";
+    return true;
+
+  } catch (error) {
+    console.error("Online ranking verification failed:", error);
+    state.onlineVerified = false;
+    state.onlineError =
+      `${error.code || "ERROR"}: ${error.message || "ランキングDBへ接続できません"}`;
+    return false;
+  }
+}
+
+async function syncPendingOnlineScores() {
+  if (
+    !onlineConfigured() ||
+    !state.onlineVerified ||
+    !supabaseClient ||
+    !state.authUserId
+  ) {
+    updatePendingScoreStatus();
+    return;
+  }
+
+  const pending = loadPendingOnlineScores();
+  if (!pending.length) {
+    updatePendingScoreStatus();
+    return;
+  }
+
+  const remaining = [];
+
+  for (const row of pending) {
+    try {
+      const { error } = await supabaseClient.rpc(
+        "submit_flash_score",
+        {
+          p_run_id: row.run_id,
+          p_nickname: row.nickname,
+          p_level: row.level,
+          p_duration_ms: row.duration_ms,
+          p_questions_answered: row.questions_answered,
+          p_client_version: row.client_version || CLIENT_VERSION
+        }
+      );
+
+      if (error) throw error;
+    } catch (error) {
+      console.error("Pending score sync failed:", error);
+      remaining.push(row);
+    }
+  }
+
+  savePendingOnlineScores(remaining);
+}
+
+async function runOnlineConnectionTest(showToast=true) {
+  updateOnlineStatus("オンラインランキングへ接続テスト中…");
+
+  const ok = await verifyOnlineRankingConnection();
+
+  if (ok) {
+    await syncPendingOnlineScores();
+    updateOnlineStatus();
+
+    if (showToast) {
+      toast("オンラインランキング接続OK");
+    }
+  } else {
+    updateOnlineStatus();
+
+    if (showToast) {
+      toast(`オンライン接続NG：${state.onlineError}`);
+    }
+  }
+
+  return ok;
+}
+
 async function initAnonymousAuth() {
   ensureLocalPlayerId();
+
+  state.onlineVerified = false;
+  state.onlineError = "";
 
   if (!onlineConfigured()) {
     state.authReady = true;
     state.authMode = "local";
+    state.onlineError = "ONLINE_RANKING / Project URL / Publishable key を確認してください";
     updateOnlineStatus();
     updateStartButton();
+    updatePendingScoreStatus();
     return;
   }
 
   if (!window.supabase || typeof window.supabase.createClient !== "function") {
     state.authReady = true;
-    state.authMode = "local-fallback";
-    updateOnlineStatus("Supabaseライブラリを読み込めなかったため端末内モード");
+    state.authMode = "online-error";
+    state.onlineError = "Supabaseライブラリを読み込めませんでした";
+    updateOnlineStatus();
     updateStartButton();
+    updatePendingScoreStatus();
     return;
   }
 
@@ -386,45 +537,49 @@ async function initAnonymousAuth() {
       error: sessionError
     } = await supabaseClient.auth.getSession();
 
-    if (sessionError) {
-      throw sessionError;
-    }
+    if (sessionError) throw sessionError;
 
     if (session?.user?.id) {
       state.authUserId = session.user.id;
-      state.authReady = true;
-      state.authMode = "anonymous-auth";
-      updateOnlineStatus();
-      updateStartButton();
-      return;
+    } else {
+      const { data, error } = await supabaseClient.auth.signInAnonymously();
+
+      if (error) throw error;
+      if (!data?.user?.id) {
+        throw new Error("匿名ユーザーIDを取得できませんでした");
+      }
+
+      state.authUserId = data.user.id;
     }
 
-    const { data, error } = await supabaseClient.auth.signInAnonymously();
-
-    if (error) throw error;
-
-    if (!data?.user?.id) {
-      throw new Error("匿名ユーザーIDを取得できませんでした");
-    }
-
-    state.authUserId = data.user.id;
     state.authReady = true;
     state.authMode = "anonymous-auth";
+
+    await verifyOnlineRankingConnection();
+
+    if (state.onlineVerified) {
+      await syncPendingOnlineScores();
+    }
+
     updateOnlineStatus();
     updateStartButton();
+    updatePendingScoreStatus();
 
   } catch (error) {
     console.error("Anonymous auth failed:", error);
+
     state.authUserId = "";
     state.authReady = true;
-    state.authMode = "local-fallback";
-    updateOnlineStatus(
-      "匿名認証に接続できなかったため、今回は端末内ランキングで動作します"
-    );
+    state.authMode = "online-error";
+    state.onlineVerified = false;
+    state.onlineError =
+      `${error.code || "AUTH"}: ${error.message || "匿名認証に失敗しました"}`;
+
+    updateOnlineStatus();
     updateStartButton();
+    updatePendingScoreStatus();
   }
 }
-
 
 function cleanNickname(value) {
   return Array.from(
@@ -531,6 +686,378 @@ function backspaceAnswer() {
   renderAnswer();
 }
 
+
+const SpeechRecognitionCtor =
+  window.SpeechRecognition ||
+  window.webkitSpeechRecognition ||
+  null;
+
+function setVoiceStatus(message="") {
+  const el = $("voiceStatus");
+  if (el) el.textContent = message;
+}
+
+function setVoiceButtonState() {
+  const btn = $("voiceAnswerBtn");
+  if (!btn) return;
+
+  const supported = !!SpeechRecognitionCtor;
+
+  btn.disabled =
+    !supported ||
+    !state.answering ||
+    state.paused;
+
+  btn.classList.toggle("unsupported", !supported);
+  btn.classList.toggle("listening", !!state.voiceListening);
+
+  if (!supported) {
+    btn.textContent = "🎤";
+    btn.title = "このブラウザでは音声入力を利用できません";
+  } else if (state.voiceListening) {
+    btn.textContent = "🎙️";
+    btn.title = "聞き取り中。タップで中止";
+  } else {
+    btn.textContent = "🎤";
+    btn.title = "マイクで答えを入力";
+  }
+}
+
+function stopVoiceRecognition({clearStatus=false}={}) {
+  const rec = state.voiceRecognition;
+
+  state.voiceResultPending = false;
+
+  if (rec) {
+    try {
+      rec.onresult = null;
+      rec.onerror = null;
+      rec.onnomatch = null;
+      rec.onstart = null;
+      rec.onend = null;
+      rec.abort();
+    } catch (_) {}
+  }
+
+  state.voiceRecognition = null;
+  state.voiceListening = false;
+
+  if (clearStatus) {
+    setVoiceStatus("");
+  }
+
+  setVoiceButtonState();
+}
+
+function normalizeJapaneseSpeechText(text) {
+  return String(text || "")
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[，、。．,.!！?？]/g, "")
+    .replace(/\s+/g, "")
+    .replace(/答えは?|こたえは?/g, "")
+    .replace(/です$/g, "");
+}
+
+function parseJapaneseKanjiNumber(text) {
+  const s = text
+    .replace(/[〇零]/g, "0")
+    .replace(/一/g, "1")
+    .replace(/二/g, "2")
+    .replace(/三/g, "3")
+    .replace(/四/g, "4")
+    .replace(/五/g, "5")
+    .replace(/六/g, "6")
+    .replace(/七/g, "7")
+    .replace(/八/g, "8")
+    .replace(/九/g, "9");
+
+  // Pure converted digits such as "一二三" -> 123.
+  if (/^\d+$/.test(s)) {
+    return Number(s);
+  }
+
+  // Japanese integer grammar sufficient for this game's answer range.
+  // Supports values through 999.
+  let rest = s;
+  let total = 0;
+
+  const hundred = rest.match(/^(\d)?百/);
+  if (hundred) {
+    total += Number(hundred[1] || 1) * 100;
+    rest = rest.slice(hundred[0].length);
+  }
+
+  const ten = rest.match(/^(\d)?十/);
+  if (ten) {
+    total += Number(ten[1] || 1) * 10;
+    rest = rest.slice(ten[0].length);
+  }
+
+  if (/^\d$/.test(rest)) {
+    total += Number(rest);
+    rest = "";
+  }
+
+  return rest === "" ? total : null;
+}
+
+function kanaNumberToKanji(text) {
+  let s = text;
+
+  const replacements = [
+    ["にひゃく","二百"],
+    ["ひゃく","百"],
+    ["にじゅう","二十"],
+    ["さんじゅう","三十"],
+    ["よんじゅう","四十"],
+    ["しじゅう","四十"],
+    ["ごじゅう","五十"],
+    ["ろくじゅう","六十"],
+    ["ななじゅう","七十"],
+    ["しちじゅう","七十"],
+    ["はちじゅう","八十"],
+    ["きゅうじゅう","九十"],
+    ["くじゅう","九十"],
+    ["じゅう","十"],
+    ["ぜろ","零"],
+    ["れい","零"],
+    ["いち","一"],
+    ["に","二"],
+    ["さん","三"],
+    ["よん","四"],
+    ["し","四"],
+    ["ご","五"],
+    ["ろく","六"],
+    ["なな","七"],
+    ["しち","七"],
+    ["はち","八"],
+    ["きゅう","九"],
+    ["く","九"]
+  ];
+
+  for (const [from,to] of replacements) {
+    s = s.split(from).join(to);
+  }
+
+  return s;
+}
+
+function parseSpokenAnswer(transcript) {
+  let s = normalizeJapaneseSpeechText(transcript);
+
+  // Most recognition engines return Arabic digits for spoken numbers.
+  const digitMatch = s.match(/\d{1,3}/);
+  if (digitMatch) {
+    const value = Number(digitMatch[0]);
+    return Number.isInteger(value) && value >= 0 && value <= 999
+      ? value
+      : null;
+  }
+
+  // Convert common kana readings first.
+  s = kanaNumberToKanji(s);
+
+  if (!/^[〇零一二三四五六七八九十百0-9]+$/.test(s)) {
+    return null;
+  }
+
+  const value = parseJapaneseKanjiNumber(s);
+
+  return (
+    Number.isInteger(value) &&
+    value >= 0 &&
+    value <= 999
+      ? value
+      : null
+  );
+}
+
+function startVoiceInput() {
+  if (
+    !SpeechRecognitionCtor ||
+    !state.runActive ||
+    !state.answering ||
+    state.paused
+  ) {
+    return;
+  }
+
+  if (state.voiceListening) {
+    stopVoiceRecognition({clearStatus:true});
+    return;
+  }
+
+  stopVoiceRecognition({clearStatus:false});
+
+  const recognition = new SpeechRecognitionCtor();
+
+  recognition.lang = "ja-JP";
+  recognition.continuous = false;
+  recognition.interimResults = false;
+  recognition.maxAlternatives = 3;
+
+  const questionId = state.questionSerial;
+
+  state.voiceRecognition = recognition;
+  state.voiceResultPending = false;
+
+  recognition.onstart = () => {
+    if (state.voiceRecognition !== recognition) return;
+
+    state.voiceListening = true;
+    state.voiceResultPending = false;
+    setVoiceStatus("🎙️ 聞いています… 答えを言ってください");
+    setVoiceButtonState();
+  };
+
+  recognition.onresult = (event) => {
+    if (
+      state.voiceRecognition !== recognition ||
+      !state.answering ||
+      state.paused ||
+      questionId !== state.questionSerial
+    ) {
+      return;
+    }
+
+    const alternatives = [];
+
+    for (let r = 0; r < event.results.length; r++) {
+      const result = event.results[r];
+
+      for (let a = 0; a < result.length; a++) {
+        alternatives.push(result[a].transcript);
+      }
+    }
+
+    let parsed = null;
+    let usedTranscript = "";
+
+    for (const transcript of alternatives) {
+      const value = parseSpokenAnswer(transcript);
+
+      if (value !== null) {
+        parsed = value;
+        usedTranscript = transcript;
+        break;
+      }
+    }
+
+    if (parsed === null) {
+      setVoiceStatus("数字を聞き取れませんでした。もう一度🎤を押してください");
+      toast("数字を聞き取れませんでした");
+      return;
+    }
+
+    state.voiceResultPending = true;
+    state.answerText = String(parsed);
+    renderAnswer();
+
+    setVoiceStatus(
+      `「${usedTranscript.trim()}」→ ${parsed}`
+    );
+
+    // Stop listening immediately after a usable answer.
+    try {
+      recognition.stop();
+    } catch (_) {}
+
+    // One-tap voice answer: show what was recognized very briefly,
+    // then submit automatically.
+    setTimeout(() => {
+      if (
+        state.runActive &&
+        state.answering &&
+        !state.paused &&
+        questionId === state.questionSerial &&
+        state.answerText === String(parsed)
+      ) {
+        submitAnswer(false);
+      }
+    }, 420);
+  };
+
+  recognition.onnomatch = () => {
+    if (state.voiceRecognition !== recognition) return;
+
+    state.voiceResultPending = false;
+    setVoiceStatus("聞き取れませんでした。もう一度どうぞ");
+    toast("聞き取れませんでした");
+  };
+
+  recognition.onerror = (event) => {
+    if (state.voiceRecognition !== recognition) return;
+
+    state.voiceResultPending = false;
+
+    let message = "音声入力を開始できませんでした";
+
+    if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+      message = "マイクの使用を許可してください";
+    } else if (event.error === "no-speech") {
+      message = "声が聞き取れませんでした";
+    } else if (event.error === "audio-capture") {
+      message = "マイクを使用できません";
+    } else if (event.error === "network") {
+      message = "音声認識の通信に失敗しました";
+    } else if (event.error === "aborted") {
+      // User/pause/new question cancellation: no warning needed.
+      message = "";
+    }
+
+    if (message) {
+      setVoiceStatus(message);
+      toast(message);
+    }
+  };
+
+  recognition.onend = () => {
+    if (state.voiceRecognition !== recognition) return;
+
+    state.voiceRecognition = null;
+    state.voiceListening = false;
+    setVoiceButtonState();
+
+    if (
+      !state.voiceResultPending &&
+      state.answering &&
+      !state.paused &&
+      !$("voiceStatus").textContent
+    ) {
+      setVoiceStatus("🎤を押して答えを言えます");
+    }
+  };
+
+  try {
+    setVoiceStatus("マイクを準備しています…");
+    recognition.start();
+  } catch (error) {
+    console.warn("SpeechRecognition start failed:", error);
+    state.voiceRecognition = null;
+    state.voiceListening = false;
+    setVoiceStatus("音声入力を開始できませんでした");
+    setVoiceButtonState();
+  }
+}
+
+function initializeVoiceInputUI() {
+  const btn = $("voiceAnswerBtn");
+
+  if (!btn) return;
+
+  if (!SpeechRecognitionCtor) {
+    btn.disabled = true;
+    btn.classList.add("unsupported");
+    setVoiceStatus("このブラウザでは音声入力を利用できません");
+  } else {
+    btn.disabled = true;
+    setVoiceStatus("🎤を押して答えを言えます");
+  }
+
+  setVoiceButtonState();
+}
+
 function enemyProfileForLevel(level) {
   // Keep the enemy progression monotonic.
   // HP changes never swap a strong enemy back to a weaker character.
@@ -579,6 +1106,9 @@ function showDamagePop(id, text) {
 
 function pauseGame() {
   if (!state.runActive || state.paused) return;
+
+  // Never leave the microphone listening behind the pause overlay.
+  stopVoiceRecognition({clearStatus:false});
 
   state.paused = true;
   state.pauseStartedAt = Date.now();
@@ -687,6 +1217,11 @@ function resumeGame() {
   }
 
   state.pausedMedia = [];
+  setVoiceButtonState();
+
+  if (state.answering && SpeechRecognitionCtor) {
+    setVoiceStatus("🎤を押して答えを言えます");
+  }
 }
 
 function togglePause() {
@@ -714,6 +1249,7 @@ function startRun() {
   stopReadyAudio(true);
   state.readyAudioShouldResume = false;
   state.questionSerial = 0;
+  stopVoiceRecognition({clearStatus:true});
   $("pauseOverlay").classList.add("hidden");
   state.level = 1;
   state.playerHp = 100;
@@ -777,6 +1313,8 @@ function updateBattleUI() {
 
 async function newQuestion() {
   if (!state.runActive) return;
+
+  stopVoiceRecognition({clearStatus:true});
 
   const questionId = ++state.questionSerial;
 
@@ -860,6 +1398,13 @@ function beginAnswer() {
   $("flashNumber").textContent = "";
   $("answerPanel").classList.remove("hidden");
 
+  if (SpeechRecognitionCtor) {
+    setVoiceStatus("🎤を押して答えを言えます");
+  } else {
+    setVoiceStatus("音声入力非対応：数字パッドで回答してください");
+  }
+  setVoiceButtonState();
+
   state.answerDeadline =
     performance.now() + LIMIT_TIME*1000;
 
@@ -894,6 +1439,8 @@ function tickAnswerTimer() {
 
 function submitAnswer(timedOut=false) {
   if (!state.answering || state.paused) return;
+
+  stopVoiceRecognition({clearStatus:true});
 
   const value = state.answerText.trim();
 
@@ -1035,6 +1582,7 @@ async function handleVictory() {
 }
 
 async function finishRun(worldPeace=false) {
+  stopVoiceRecognition({clearStatus:true});
   state.runActive = false;
   state.questionSerial += 1;
   stopReadyAudio(true);
@@ -1087,6 +1635,7 @@ async function finishRun(worldPeace=false) {
 }
 
 function quitRun() {
+  stopVoiceRecognition({clearStatus:true});
   state.questionSerial += 1;
   stopReadyAudio(true);
   if (!state.runActive) {
@@ -1166,60 +1715,109 @@ async function submitOnlineScore(
   durationMs,
   questionsAnswered
 ) {
-  if (
-    !onlineConfigured() ||
-    state.authMode !== "anonymous-auth" ||
-    !supabaseClient ||
-    !state.authUserId
-  ) {
-    saveLocalRanking(nickname, level, runId, durationMs, questionsAnswered);
+  const payload = {
+    run_id: runId,
+    nickname: cleanNickname(nickname),
+    level: Math.max(1,Math.min(50,Number(level))),
+    duration_ms: Math.max(0,Math.round(Number(durationMs||0))),
+    questions_answered: Math.max(0,Math.round(Number(questionsAnswered||0))),
+    client_version: CLIENT_VERSION,
+    created_at: new Date().toISOString()
+  };
+
+  /*
+    Important v11 behavior:
+    If ONLINE_RANKING=true, never pretend a local ranking is the online one.
+    Failed submissions are queued for later sync instead.
+  */
+  if (!onlineConfigured()) {
+    saveLocalRanking(
+      payload.nickname,
+      payload.level,
+      payload.run_id,
+      payload.duration_ms,
+      payload.questions_answered
+    );
     return {
       ok:false,
-      message:"オンライン匿名認証が使えないため、この端末のランキングに保存しました。"
+      localOnly:true,
+      message:"オンラインランキングが未設定なので、この端末だけに保存しました。"
+    };
+  }
+
+  if (
+    state.authMode !== "anonymous-auth" ||
+    !supabaseClient ||
+    !state.authUserId ||
+    !state.onlineVerified
+  ) {
+    queuePendingOnlineScore(payload);
+    return {
+      ok:false,
+      queued:true,
+      message:`オンライン接続できないため送信待ちに保存しました。${state.onlineError || ""}`
     };
   }
 
   try {
-    const { error } = await supabaseClient
-      .from("flash_scores")
-      .insert({
-        player_id: state.authUserId,
-        run_id: runId,
-        nickname: cleanNickname(nickname),
-        level: Math.max(1,Math.min(50,Number(level))),
-        edition: EDITION,
-        duration_ms: Math.max(0,Math.round(Number(durationMs||0))),
-        questions_answered: Math.max(0,Math.round(Number(questionsAnswered||0))),
-        client_version: CLIENT_VERSION
-      });
-
-    if (error) {
-      // PostgreSQL unique_violation (same run_id already stored) is harmless.
-      if (error.code === "23505") {
-        return {ok:true, duplicateRun:true};
+    const { error } = await supabaseClient.rpc(
+      "submit_flash_score",
+      {
+        p_run_id: payload.run_id,
+        p_nickname: payload.nickname,
+        p_level: payload.level,
+        p_duration_ms: payload.duration_ms,
+        p_questions_answered: payload.questions_answered,
+        p_client_version: payload.client_version
       }
-      throw error;
-    }
+    );
+
+    if (error) throw error;
 
     return {ok:true};
 
   } catch (error) {
     console.error("Online score submit failed:", error);
-    saveLocalRanking(nickname, level, runId, durationMs, questionsAnswered);
+
+    state.onlineError =
+      `${error.code || "ERROR"}: ${error.message || "スコア送信に失敗しました"}`;
+
+    queuePendingOnlineScore(payload);
+    updateOnlineStatus();
+
     return {
       ok:false,
-      message:"ランキング送信に失敗したため、この端末にも記録しました。"
+      queued:true,
+      message:`オンライン送信に失敗したため送信待ちに保存しました。${state.onlineError}`
     };
   }
 }
 
 async function fetchOnlineRanking(){
+  if (!onlineConfigured()) {
+    return {
+      source:"local",
+      rows:loadLocalRanking()
+    };
+  }
+
   if (
-    !onlineConfigured() ||
     state.authMode !== "anonymous-auth" ||
-    !supabaseClient
+    !supabaseClient ||
+    !state.authUserId
   ) {
-    return loadLocalRanking();
+    throw new Error(
+      state.onlineError ||
+      "匿名認証が完了していません"
+    );
+  }
+
+  if (!state.onlineVerified) {
+    const ok = await verifyOnlineRankingConnection();
+
+    if (!ok) {
+      throw new Error(state.onlineError || "オンラインランキングへ接続できません");
+    }
   }
 
   const { data, error } = await supabaseClient.rpc(
@@ -1228,15 +1826,33 @@ async function fetchOnlineRanking(){
   );
 
   if (error) throw error;
-  return data || [];
+
+  return {
+    source:"online",
+    rows:data || []
+  };
 }
 
 async function loadRanking(){
   const list=$("rankingList");
+  const source=$("rankingSource");
+
   list.innerHTML=`<div class="rank-row"><span>…</span><span>読み込み中</span><span></span></div>`;
+  source.textContent="接続先を確認中…";
+  source.className="ranking-source";
 
   try{
-    const rows=await fetchOnlineRanking();
+    const result=await fetchOnlineRanking();
+    const rows=result.rows || [];
+
+    if(result.source==="online"){
+      source.textContent="🌐 オンライン共通ランキング";
+      source.className="ranking-source online";
+    }else{
+      source.textContent="📱 この端末だけのランキング（オンライン未設定）";
+      source.className="ranking-source local";
+    }
+
     list.innerHTML="";
 
     if(!rows.length){
@@ -1260,9 +1876,31 @@ async function loadRanking(){
       row.append(rank,name,lv);
       list.append(row);
     });
+
   }catch(error){
-    console.error("Ranking fetch failed:", error);
-    list.innerHTML=`<div class="rank-row"><span>!</span><span>ランキングを取得できませんでした</span><span></span></div>`;
+    console.error("Ranking fetch failed:",error);
+
+    const message =
+      error?.message ||
+      state.onlineError ||
+      "オンラインランキングを取得できませんでした";
+
+    source.textContent="🔴 オンラインランキング接続エラー";
+    source.className="ranking-source error";
+
+    list.innerHTML="";
+    const row=document.createElement("div");
+    row.className="rank-row";
+
+    const mark=document.createElement("span");
+    const text=document.createElement("span");
+    const blank=document.createElement("span");
+
+    mark.textContent="!";
+    text.textContent=message;
+
+    row.append(mark,text,blank);
+    list.append(row);
   }
 }
 
@@ -1270,24 +1908,35 @@ function updateOnlineStatus(customMessage=""){
   const el=$("onlineStatus");
 
   if(customMessage){
-    el.textContent="⚠ "+customMessage;
-    el.style.background="#fff0df";
-    return;
-  }
-
-  if(!state.authReady){
-    el.textContent="🔐 匿名認証中…";
+    el.textContent="⏳ "+customMessage;
     el.style.background="#eef1ff";
     return;
   }
 
-  if(state.authMode==="anonymous-auth"){
-    el.textContent="🔐 匿名認証済み：同名OK・1プレイヤー1ベスト表示";
-    el.style.background="#dff6df";
-  }else{
-    el.textContent="📱 端末内モード：同名OK・1プレイヤー1ベスト表示";
-    el.style.background="#efe9ba";
+  if(!onlineConfigured()){
+    el.textContent="📱 オンラインランキング未設定：現在はこの端末だけ";
+    el.style.background="#fff0bf";
+    return;
   }
+
+  if(!state.authReady){
+    el.textContent="🔐 Supabase匿名認証中…";
+    el.style.background="#eef1ff";
+    return;
+  }
+
+  if(
+    state.authMode==="anonymous-auth" &&
+    state.onlineVerified
+  ){
+    el.textContent="🟢 オンライン共通ランキング接続済み";
+    el.style.background="#dff6df";
+    return;
+  }
+
+  el.textContent=
+    `🔴 オンライン接続エラー：${state.onlineError || "接続を確認してください"}`;
+  el.style.background="#ffe0e0";
 }
 
 // ----------------------------
@@ -1377,6 +2026,11 @@ $("answerBackspaceBtn").addEventListener(
   backspaceAnswer
 );
 
+$("voiceAnswerBtn").addEventListener(
+  "click",
+  startVoiceInput
+);
+
 document.querySelectorAll("[data-digit]").forEach(btn=>{
   btn.addEventListener("click",()=>{
     appendAnswerDigit(btn.dataset.digit);
@@ -1412,6 +2066,7 @@ document.addEventListener("keydown",(e)=>{
     submitAnswer(false);
   }
 });
+$("testOnlineBtn").addEventListener("click",()=>runOnlineConnectionTest(true));
 $("rankingBtn").addEventListener("click",async()=>{await loadRanking();showScreen("ranking")});
 $("refreshRankingBtn").addEventListener("click",loadRanking);
 $("backupBtn").addEventListener("click",()=>showScreen("backup"));
@@ -1440,6 +2095,8 @@ $("vibrationToggle").addEventListener("change",()=>{state.settings.vibration=$("
 loadLocal();
 updateOnlineStatus();
 updateStartButton();
+initializeVoiceInputUI();
+updatePendingScoreStatus();
 initAnonymousAuth();
 
 function normalizeGameViewportAfterRotation(){

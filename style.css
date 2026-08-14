@@ -1503,3 +1503,213 @@ body.game-active main{
     gap:3px;
   }
 }
+
+
+/* ============================================================
+   v10: 音声回答
+   ============================================================ */
+
+.answer-display{
+  position:relative;
+  padding-left:52px !important;
+  padding-right:52px !important;
+}
+
+.answer-value{
+  min-width:0;
+  text-align:center;
+}
+
+.voice-answer-btn{
+  position:absolute;
+  right:5px;
+  top:50%;
+  transform:translateY(-50%);
+  width:42px;
+  height:42px;
+  min-width:42px;
+  min-height:42px;
+  padding:0;
+  border:2px solid #2474bd;
+  border-radius:50%;
+  background:#eaf6ff;
+  color:#153a5d;
+  font-size:1.25rem;
+  line-height:1;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  box-shadow:0 2px 0 #1d5888;
+  touch-action:manipulation;
+}
+
+.voice-answer-btn:active{
+  transform:translateY(calc(-50% + 2px));
+  box-shadow:none;
+}
+
+.voice-answer-btn.listening{
+  background:#ffe5e5;
+  border-color:#d42b2b;
+  box-shadow:0 0 0 5px rgba(220,45,45,.13);
+  animation:voicePulse .85s ease-in-out infinite alternate;
+}
+
+.voice-answer-btn.unsupported{
+  opacity:.36;
+  filter:grayscale(1);
+  box-shadow:none;
+}
+
+@keyframes voicePulse{
+  from{transform:translateY(-50%) scale(1)}
+  to{transform:translateY(-50%) scale(1.08)}
+}
+
+.voice-status{
+  min-height:15px;
+  height:15px;
+  margin-top:-1px;
+  text-align:center;
+  font-size:.68rem;
+  line-height:15px;
+  color:#6d5600;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
+/* v8の大きなパッドをなるべく維持。
+   voice-statusが増えた分だけanswer-panelのgrid rowを1本追加。 */
+@media (max-width:700px), (orientation:landscape) and (max-height:600px){
+  #screen-game .answer-panel{
+    grid-template-rows:
+      auto
+      auto
+      minmax(42px,auto)
+      15px
+      minmax(0,1fr);
+  }
+
+  #screen-game .answer-display{
+    padding-left:50px !important;
+    padding-right:50px !important;
+  }
+
+  .voice-answer-btn{
+    width:38px;
+    height:38px;
+    min-width:38px;
+    min-height:38px;
+    right:4px;
+    font-size:1.05rem;
+  }
+}
+
+@media (orientation:landscape) and (max-height:600px){
+  #screen-game .answer-panel{
+    grid-template-rows:
+      auto
+      auto
+      minmax(30px,auto)
+      13px
+      minmax(0,1fr);
+  }
+
+  .voice-status{
+    min-height:13px;
+    height:13px;
+    line-height:13px;
+    font-size:.56rem;
+  }
+
+  .voice-answer-btn{
+    width:27px;
+    height:27px;
+    min-width:27px;
+    min-height:27px;
+    right:3px;
+    border-width:1px;
+    font-size:.82rem;
+  }
+
+  #screen-game .answer-display{
+    padding-left:35px !important;
+    padding-right:35px !important;
+  }
+}
+
+@media (orientation:landscape) and (max-height:390px){
+  #screen-game .answer-panel{
+    grid-template-rows:
+      minmax(24px,auto)
+      12px
+      minmax(0,1fr);
+  }
+
+  .voice-status{
+    min-height:12px;
+    height:12px;
+    line-height:12px;
+    font-size:.5rem;
+  }
+
+  .voice-answer-btn{
+    width:23px;
+    height:23px;
+    min-width:23px;
+    min-height:23px;
+    font-size:.7rem;
+  }
+
+  #screen-game .answer-display{
+    padding-left:29px !important;
+    padding-right:29px !important;
+  }
+}
+
+
+/* ============================================================
+   v11: 本当にオンラインか分かる表示
+   ============================================================ */
+.online-tools{
+  margin-top:8px;
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:7px;
+}
+.mini-btn{
+  border:1px solid #6d7e89;
+  border-radius:10px;
+  background:#fff;
+  padding:7px 10px;
+  font-weight:800;
+  font-size:.78rem;
+  cursor:pointer;
+}
+.pending-score-status{
+  font-size:.74rem;
+  color:#795800;
+}
+.ranking-source{
+  display:inline-block;
+  margin:0 0 9px;
+  padding:6px 10px;
+  border-radius:999px;
+  font-weight:900;
+  font-size:.8rem;
+  background:#eef1f3;
+}
+.ranking-source.online{
+  background:#dff6df;
+  color:#175b21;
+}
+.ranking-source.local{
+  background:#fff1bd;
+  color:#6c5300;
+}
+.ranking-source.error{
+  background:#ffe1e1;
+  color:#8f1111;
+}
