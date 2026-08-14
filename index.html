@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#ffe000">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="フラッシュ暗算">
+  <title>ルミネ姫救出大作戦 - フラッシュ暗算</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icons/icon-192.png">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div>
+        <div class="eyebrow">FLASH MENTAL ARITHMETIC</div>
+        <h1>ルミネ姫救出大作戦</h1>
+      </div>
+      <button id="settingsBtn" class="icon-btn" aria-label="設定">⚙</button>
+    </header>
+
+    <main>
+      <!-- ニックネーム / ホーム -->
+      <section id="screen-home" class="screen active">
+        <div class="hero-card">
+          <div class="hero-emoji">⚡👑⚡</div>
+          <h2>イエロー進軍 Edition</h2>
+          <p class="lead">数字を一瞬で足して、敵を倒しながらLv.50を目指そう！</p>
+        </div>
+
+        <div class="card">
+          <label class="label" for="nickname">ランキング用ニックネーム</label>
+          <input id="nickname" maxlength="12" autocomplete="nickname"
+                 placeholder="例：ねこまる" class="text-input">
+
+          <div class="privacy-warning">
+            <strong>⚠ 公開ランキングに表示されます</strong>
+            <p>
+              氏名・学校名・勤務先・SNS ID・住所・誕生日など、
+              <b>個人の特定につながる情報をニックネームに入れないでください。</b>
+            </p>
+          </div>
+
+          <label class="consent-row">
+            <input id="privacyCheck" type="checkbox">
+            <span>注意事項を確認し、個人を特定できないニックネームを使います</span>
+          </label>
+
+          <button id="startBtn" class="primary-btn" disabled>進軍開始！</button>
+
+          <div class="home-actions">
+            <button id="rankingBtn" class="secondary-btn">🏆 ランキング</button>
+            <button id="backupBtn" class="secondary-btn">💾 バックアップ</button>
+          </div>
+
+          <div id="onlineStatus" class="status-pill">ランキング接続を確認中…</div>
+
+          <div class="anonymous-id-note">
+            <strong>ニックネームは重複してOKです。</strong>
+            <span>
+              オンライン時はSupabaseの匿名認証で発行されるユーザーIDを内部識別に使います。
+              同じニックネームの人がいても別プレイヤーとして扱われます。
+              氏名・電話番号・端末の製造番号などはユーザー識別に使いません。
+            </span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ゲーム -->
+      <section id="screen-game" class="screen">
+        <div class="battle-header">
+          <div>
+            <div id="playerLabel" class="player-label">Lv.1 勇者</div>
+            <div class="gauge hp-gauge"><div id="playerHpFill"></div></div>
+          </div>
+          <div class="level-chip" id="levelChip">Lv.1</div>
+        </div>
+
+        <div class="battle-grid">
+          <div class="question-zone">
+            <div id="readyText" class="ready-text">READY?</div>
+            <div id="flashNumber" class="flash-number"></div>
+
+            <div id="answerPanel" class="answer-panel hidden">
+              <div id="timeText" class="time-text">残り 10.0秒</div>
+              <div class="gauge time-gauge"><div id="timeFill"></div></div>
+              <input id="answerInput" class="answer-input"
+                     inputmode="numeric" pattern="[0-9]*"
+                     enterkeyhint="done" autocomplete="off"
+                     maxlength="6" placeholder="答え">
+              <button id="answerBtn" class="primary-btn">回答</button>
+            </div>
+          </div>
+
+          <div class="enemy-zone">
+            <div id="enemyTitle" class="enemy-title">ENEMY</div>
+            <div class="enemy-image-wrap">
+              <img id="enemyImage" class="enemy-image" src="./assets/goblin.png" alt="敵">
+            </div>
+            <div class="gauge enemy-gauge"><div id="enemyHpFill"></div></div>
+          </div>
+        </div>
+
+        <div id="judgeOverlay" class="judge-overlay hidden">
+          <div id="judgeMark" class="judge-mark">○</div>
+          <div id="correctAnswer" class="correct-answer"></div>
+        </div>
+
+        <button id="quitRunBtn" class="text-btn">このプレイを終了</button>
+      </section>
+
+      <!-- レベルアップ -->
+      <section id="screen-levelup" class="screen">
+        <div class="full-center">
+          <div class="celebrate">✨</div>
+          <img id="clearImage" class="clear-image hidden" src="./assets/lumine.png" alt="ルミネ姫">
+          <h2 id="levelupText">LEVEL UP!</h2>
+          <p id="levelupSub"></p>
+        </div>
+      </section>
+
+      <!-- ランキング -->
+      <section id="screen-ranking" class="screen">
+        <div class="screen-title-row">
+          <button class="back-btn" data-back-home>←</button>
+          <h2>🏆 YELLOW RANKING</h2>
+          <span></span>
+        </div>
+        <p class="ranking-note">上位1000件。ニックネームは公開表示されます。</p>
+        <div id="rankingList" class="ranking-list"></div>
+        <button id="refreshRankingBtn" class="secondary-btn wide">更新</button>
+      </section>
+
+      <!-- バックアップ -->
+      <section id="screen-backup" class="screen">
+        <div class="screen-title-row">
+          <button class="back-btn" data-back-home>←</button>
+          <h2>💾 バックアップ</h2>
+          <span></span>
+        </div>
+
+        <div class="card">
+          <h3>この端末のデータ</h3>
+          <p>
+            ニックネーム、ベストレベル、プレイ履歴、設定、
+            中断中のプレイデータをJSONファイルに保存できます。
+            Supabaseの認証トークンはバックアップに含めません。
+          </p>
+          <button id="exportBackupBtn" class="primary-btn">バックアップを書き出す</button>
+        </div>
+
+        <div class="card">
+          <h3>バックアップを読み込む</h3>
+          <p>
+            機種変更後などにJSONを選んで復元できます。
+            新しい端末では新しい匿名ユーザーとして認証されます。
+            <b>復元した途中プレイはオンラインランキング送信対象外</b>です。
+          </p>
+          <input id="importBackupInput" type="file" accept="application/json,.json" class="file-input">
+        </div>
+
+        <div id="backupMessage" class="message-box hidden"></div>
+      </section>
+
+      <!-- 設定 -->
+      <section id="screen-settings" class="screen">
+        <div class="screen-title-row">
+          <button class="back-btn" data-back-home>←</button>
+          <h2>⚙ 設定</h2>
+          <span></span>
+        </div>
+
+        <div class="card">
+          <label class="label">文字サイズ</label>
+          <div class="segmented">
+            <button data-font-size="normal">標準</button>
+            <button data-font-size="large">大</button>
+            <button data-font-size="xlarge">特大</button>
+          </div>
+
+          <label class="toggle-row">
+            <span>効果音</span>
+            <input id="sfxToggle" type="checkbox" checked>
+          </label>
+          <label class="toggle-row">
+            <span>バイブレーション</span>
+            <input id="vibrationToggle" type="checkbox" checked>
+          </label>
+        </div>
+      </section>
+    </main>
+
+    <div id="toast" class="toast hidden"></div>
+  </div>
+
+  <script src="./config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
