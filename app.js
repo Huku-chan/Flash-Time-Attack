@@ -11,7 +11,7 @@ const LEGACY_STORAGE_KEYS = [
 ];
 const LOCAL_PLAYER_ID_KEY = "flashMentalYellow.localFallbackPlayerId.v1";
 const EDITION = "yellow";
-const CLIENT_VERSION = "web-v7.0";
+const CLIENT_VERSION = "web-v9.0";
 const MAX_RANKING = 1000;
 const LIMIT_TIME = 10.0;
 
@@ -43,6 +43,9 @@ const state = {
   pausedTotalMs: 0,
   answerPauseRemainingMs: 0,
   pausedMedia: [],
+  readyAudio: null,
+  readyAudioShouldResume: false,
+  questionSerial: 0,
   runActive: false,
   eligibleForOnlineRanking: true,
   bestLevel: 0,
@@ -121,44 +124,147 @@ function beep(freq=440, dur=0.07, gain=0.035, type="sine") {
   } catch (_) {}
 }
 
-async function readyCountdown() {
-  // Original pygame behavior:
-  // ready_se.play()
-  // READY_DELAY = ready_se.get_length() - 1.8
-  //
-  // The original ready sound is about 6 seconds long, so the numbers
-  // begin about 4.2 seconds after READY? appears, while the tail of
-  // the countdown sound continues naturally.
-  safePlay(media.ready, .42);
+function stopReadyAudio(reset=true) {
+  const audio = state.readyAudio;
 
-  let duration = Number(media.ready.duration);
+  if (audio) {
+    try {
+      audio.pause();
 
-  if (!Number.isFinite(duration) || duration <= 0) {
-    await new Promise(resolve => {
-      let done = false;
+      if (reset) {
+        audio.currentTime = 0;
+      }
 
-      const finish = () => {
-        if (done) return;
-        done = true;
-        media.ready.removeEventListener("loadedmetadata", finish);
-        resolve();
-      };
-
-      media.ready.addEventListener("loadedmetadata", finish, {once:true});
-      setTimeout(finish, 700);
-    });
-
-    duration = Number(media.ready.duration);
+      audio.onended = null;
+      audio.onerror = null;
+    } catch (_) {}
   }
 
-  const readyDelaySec = (
-    Number.isFinite(duration) && duration > 1.8
-      ? Math.max(0, duration - 1.8)
-      : 4.2
+  state.readyAudio = null;
+  state.readyAudioShouldResume = false;
+}
+
+async function waitUntilResumed() {
+  while (state.runActive && state.paused) {
+    await sleep(40);
+  }
+
+  return state.runActive;
+}
+
+async function getReadyAudioDuration(audio) {
+  const existing = Number(audio.duration);
+
+  if (Number.isFinite(existing) && existing > 0) {
+    return existing;
+  }
+
+  await new Promise(resolve => {
+    let finished = false;
+
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+
+      audio.removeEventListener("loadedmetadata", finish);
+      audio.removeEventListener("durationchange", finish);
+      resolve();
+    };
+
+    audio.addEventListener("loadedmetadata", finish, {once:true});
+    audio.addEventListener("durationchange", finish, {once:true});
+
+    // Do not let metadata loading hold the game forever.
+    setTimeout(finish, 800);
+  });
+
+  const duration = Number(audio.duration);
+
+  return (
+    Number.isFinite(duration) && duration > 0
+      ? duration
+      : 6.0
   );
+}
+
+async function readyCountdown(questionId) {
+  /*
+    Important pause rule:
+    If the game is already paused when the next question reaches READY?,
+    do NOT start the countdown sound in the background.
+  */
+  const canStart = await waitUntilResumed();
+
+  if (
+    !canStart ||
+    !state.runActive ||
+    questionId !== state.questionSerial
+  ) {
+    return false;
+  }
+
+  // Every question gets a completely fresh audio element.
+  // No currentTime / ended / play-promise state is inherited
+  // from a previous READY countdown.
+  stopReadyAudio(true);
+
+  const audio = new Audio("./assets/ready_countdown.mp3");
+  audio.preload = "auto";
+  audio.volume = .42;
+
+  state.readyAudio = audio;
+  state.readyAudioShouldResume = false;
+
+  audio.onended = () => {
+    if (state.readyAudio === audio) {
+      state.readyAudio = null;
+      state.readyAudioShouldResume = false;
+    }
+  };
+
+  let duration = await getReadyAudioDuration(audio);
+
+  // A pause can happen while metadata is loading.
+  // If so, wait BEFORE starting playback.
+  const stillCanStart = await waitUntilResumed();
+
+  if (
+    !stillCanStart ||
+    !state.runActive ||
+    questionId !== state.questionSerial ||
+    state.readyAudio !== audio
+  ) {
+    if (state.readyAudio === audio) {
+      stopReadyAudio(true);
+    }
+    return false;
+  }
+
+  try {
+    audio.currentTime = 0;
+    await audio.play();
+  } catch (error) {
+    console.warn("READY audio could not start:", error);
+    // The visual countdown still proceeds even if browser audio fails.
+  }
+
+  /*
+    Original pygame behavior:
+      READY_DELAY = ready_se.get_length() - 1.8
+
+    pausableSleep freezes this delay during pause.
+    The sound itself is independently paused/resumed by pauseGame/resumeGame.
+  */
+  const readyDelaySec = Math.max(0, duration - 1.8);
 
   await pausableSleep(readyDelaySec * 1000);
+
+  return (
+    state.runActive &&
+    questionId === state.questionSerial
+  );
 }
+
 function hitSound() {
   safePlay(media.correct, .38);
   safePlay(media.hit, .24);
@@ -486,10 +592,29 @@ function pauseGame() {
     cancelAnimationFrame(state.timerRAF);
   }
 
-  // Pause any relevant long-running audio at its current position.
+  /*
+    READY audio:
+    Pause only the CURRENT question's countdown sound.
+    If the next READY has not started yet, there is nothing to play/pause,
+    and readyCountdown() will wait until resume.
+  */
+  state.readyAudioShouldResume = false;
+
+  const readyAudio = state.readyAudio;
+
+  if (readyAudio) {
+    try {
+      if (!readyAudio.paused && !readyAudio.ended) {
+        state.readyAudioShouldResume = true;
+        readyAudio.pause();
+      }
+    } catch (_) {}
+  }
+
+  // Other long-running audio.
   state.pausedMedia = [];
 
-  for (const audio of [media.ready, media.bossBgm]) {
+  for (const audio of [media.bossBgm]) {
     try {
       if (!audio.paused && !audio.ended) {
         state.pausedMedia.push(audio);
@@ -524,10 +649,37 @@ function resumeGame() {
     tickAnswerTimer();
   }
 
-  // Continue paused audio at the same position.
+  /*
+    Resume the same READY audio only when:
+    - it existed when pause was pressed
+    - it is still the current READY audio
+    - it has not already ended
+  */
+  const readyAudio = state.readyAudio;
+
+  if (
+    state.readyAudioShouldResume &&
+    readyAudio &&
+    !readyAudio.ended
+  ) {
+    try {
+      const p = readyAudio.play();
+
+      if (p && typeof p.catch === "function") {
+        p.catch(error => {
+          console.warn("READY audio resume failed:", error);
+        });
+      }
+    } catch (_) {}
+  }
+
+  state.readyAudioShouldResume = false;
+
+  // Continue other paused audio.
   for (const audio of state.pausedMedia) {
     try {
       const p = audio.play();
+
       if (p && typeof p.catch === "function") {
         p.catch(()=>{});
       }
@@ -559,6 +711,9 @@ function startRun() {
   state.pausedTotalMs = 0;
   state.answerPauseRemainingMs = 0;
   state.pausedMedia = [];
+  stopReadyAudio(true);
+  state.readyAudioShouldResume = false;
+  state.questionSerial = 0;
   $("pauseOverlay").classList.add("hidden");
   state.level = 1;
   state.playerHp = 100;
@@ -623,8 +778,16 @@ function updateBattleUI() {
 async function newQuestion() {
   if (!state.runActive) return;
 
+  const questionId = ++state.questionSerial;
+
   state.answering = false;
   clearAnswer();
+
+  /*
+    Clean up any READY sound left from the previous question.
+    The next sound will always start from 0 with a fresh Audio object.
+  */
+  stopReadyAudio(true);
 
   $("answerPanel").classList.add("hidden");
   $("flashNumber").textContent = "";
@@ -640,28 +803,53 @@ async function newQuestion() {
 
   state.answer = state.nums.reduce((a,b)=>a+b,0);
 
-  // Follow the original pygame version:
-  // play the countdown audio and use its length to decide when flashing starts.
-  await readyCountdown();
+  /*
+    If pause is already open here, readyCountdown waits silently.
+    No READY sound can begin behind the pause overlay.
+  */
+  const readyCompleted = await readyCountdown(questionId);
 
-  if (!state.runActive) return;
+  if (
+    !readyCompleted ||
+    !state.runActive ||
+    questionId !== state.questionSerial
+  ) {
+    return;
+  }
 
   $("readyText").classList.add("hidden");
 
   for (const n of state.nums) {
-    if (!state.runActive) return;
+    if (
+      !state.runActive ||
+      questionId !== state.questionSerial
+    ) {
+      return;
+    }
 
     $("flashNumber").textContent = n;
     await pausableSleep(interval * 850);
+
+    if (
+      !state.runActive ||
+      questionId !== state.questionSerial
+    ) {
+      return;
+    }
 
     $("flashNumber").textContent = "";
     await pausableSleep(interval * 150);
   }
 
-  // Original code keeps the final number context for ~0.8 s.
   await pausableSleep(800);
 
-  if (!state.runActive) return;
+  if (
+    !state.runActive ||
+    questionId !== state.questionSerial
+  ) {
+    return;
+  }
+
   beginAnswer();
 }
 
@@ -848,6 +1036,8 @@ async function handleVictory() {
 
 async function finishRun(worldPeace=false) {
   state.runActive = false;
+  state.questionSerial += 1;
+  stopReadyAudio(true);
   state.paused = false;
   state.pauseStartedAt = 0;
   $("pauseOverlay").classList.add("hidden");
@@ -897,6 +1087,8 @@ async function finishRun(worldPeace=false) {
 }
 
 function quitRun() {
+  state.questionSerial += 1;
+  stopReadyAudio(true);
   if (!state.runActive) {
     showScreen("home");
     return;

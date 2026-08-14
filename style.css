@@ -1359,3 +1359,147 @@ body.game-active main{
     height:clamp(25px,8vh,31px);
   }
 }
+
+
+/* ============================================================
+   v8: 下半分をしっかり使う大きな数字入力エリア
+   ============================================================ */
+
+/*
+  Ver.7ではキーボタンの高さに上限をつけていたため、
+  question-zone の下側に空白が残ることがあった。
+  v8では answer-panel を下側領域いっぱいに使い、
+  number-pad が残りの高さをすべて取る。
+*/
+@media (max-width:700px), (orientation:landscape) and (max-height:600px){
+
+  #screen-game .answer-panel{
+    display:grid;
+    grid-template-rows:
+      auto
+      auto
+      minmax(42px,auto)
+      minmax(0,1fr);
+    width:min(100%,430px);
+    height:100%;
+    max-height:100%;
+    min-height:0;
+    gap:4px;
+    align-content:stretch;
+    justify-content:stretch;
+    overflow:hidden;
+  }
+
+  #screen-game .time-text{
+    align-self:end;
+  }
+
+  #screen-game .time-gauge{
+    align-self:start;
+  }
+
+  #screen-game .answer-display{
+    width:100%;
+    max-width:none;
+    min-height:44px;
+    height:auto;
+    padding:3px 8px;
+    font-size:clamp(1.9rem,9vw,3rem);
+  }
+
+  .number-pad{
+    width:100%;
+    max-width:none;
+    height:100%;
+    min-height:0;
+    margin:0;
+    display:grid;
+    grid-template-columns:repeat(3,minmax(0,1fr));
+    grid-template-rows:repeat(4,minmax(0,1fr));
+    gap:5px;
+    align-self:stretch;
+  }
+
+  .number-pad button{
+    width:100%;
+    height:100%;
+    min-height:0;
+    max-height:none;
+    padding:0;
+    border-radius:9px;
+    font-size:clamp(1.25rem,6vw,1.9rem);
+  }
+
+  .number-pad .answer-ok-btn{
+    font-size:clamp(.82rem,3.8vw,1.12rem);
+  }
+}
+
+
+/* 横向きでは6列×2段のまま、残り高さをすべてキーに配分 */
+@media (orientation:landscape) and (max-height:600px){
+
+  #screen-game .answer-panel{
+    width:min(100%,680px);
+    grid-template-rows:
+      auto
+      auto
+      minmax(30px,auto)
+      minmax(0,1fr);
+    gap:3px;
+  }
+
+  #screen-game .answer-display{
+    min-height:30px;
+    height:auto;
+    width:100%;
+    font-size:clamp(1.4rem,7vh,2.2rem);
+    padding:1px 7px;
+  }
+
+  .number-pad{
+    width:100%;
+    height:100%;
+    grid-template-columns:repeat(6,minmax(0,1fr));
+    grid-template-rows:repeat(2,minmax(0,1fr));
+    gap:4px;
+  }
+
+  .number-pad button{
+    width:100%;
+    height:100%;
+    min-height:0;
+    max-height:none;
+    font-size:clamp(1rem,5.4vh,1.45rem);
+  }
+
+  .number-pad .answer-ok-btn{
+    font-size:clamp(.68rem,3.4vh,.92rem);
+  }
+}
+
+
+/* 背の低い横向き端末でも空き領域をキーへ回す */
+@media (orientation:landscape) and (max-height:390px){
+
+  #screen-game .answer-panel{
+    grid-template-rows:
+      auto
+      minmax(24px,auto)
+      minmax(0,1fr);
+  }
+
+  /* 既存v7と同様、低い端末では残り秒数文字を消す */
+  #screen-game .time-text{
+    display:none;
+  }
+
+  #screen-game .answer-display{
+    min-height:24px;
+    font-size:1.25rem;
+  }
+
+  .number-pad{
+    gap:3px;
+  }
+}
