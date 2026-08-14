@@ -11,7 +11,7 @@ const LEGACY_STORAGE_KEYS = [
 ];
 const LOCAL_PLAYER_ID_KEY = "flashMentalYellow.localFallbackPlayerId.v1";
 const EDITION = "yellow";
-const CLIENT_VERSION = "web-v4.0";
+const CLIENT_VERSION = "web-v5.0";
 const MAX_RANKING = 1000;
 const LIMIT_TIME = 10.0;
 
@@ -38,6 +38,11 @@ const state = {
   answering: false,
   answerDeadline: 0,
   timerRAF: null,
+  paused: false,
+  pauseStartedAt: 0,
+  pausedTotalMs: 0,
+  answerPauseRemainingMs: 0,
+  pausedMedia: [],
   runActive: false,
   eligibleForOnlineRanking: true,
   bestLevel: 0,
@@ -152,7 +157,7 @@ async function readyCountdown() {
       : 4.2
   );
 
-  await sleep(readyDelaySec * 1000);
+  await pausableSleep(readyDelaySec * 1000);
 }
 function hitSound() {
   safePlay(media.correct, .38);
@@ -180,6 +185,23 @@ function randomInt(a,b) {
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function pausableSleep(ms) {
+  let remaining = Math.max(0, Number(ms) || 0);
+  let last = performance.now();
+
+  while (remaining > 0 && state.runActive) {
+    await sleep(Math.min(remaining, 40));
+
+    const now = performance.now();
+
+    if (!state.paused) {
+      remaining -= Math.max(0, now - last);
+    }
+
+    last = now;
+  }
 }
 
 function makeUUID() {
@@ -388,7 +410,7 @@ function clearAnswer() {
 }
 
 function appendAnswerDigit(digit) {
-  if (!state.answering) return;
+  if (!state.answering || state.paused) return;
   if (!/^\d$/.test(String(digit))) return;
   if (state.answerText.length >= 6) return;
 
@@ -398,7 +420,7 @@ function appendAnswerDigit(digit) {
 }
 
 function backspaceAnswer() {
-  if (!state.answering) return;
+  if (!state.answering || state.paused) return;
   state.answerText = state.answerText.slice(0,-1);
   renderAnswer();
 }
@@ -449,6 +471,80 @@ function showDamagePop(id, text) {
   el.classList.add("pop");
 }
 
+function pauseGame() {
+  if (!state.runActive || state.paused) return;
+
+  state.paused = true;
+  state.pauseStartedAt = Date.now();
+
+  // Freeze the answer timer exactly where it is.
+  if (state.answering) {
+    state.answerPauseRemainingMs = Math.max(
+      0,
+      state.answerDeadline - performance.now()
+    );
+    cancelAnimationFrame(state.timerRAF);
+  }
+
+  // Pause any relevant long-running audio at its current position.
+  state.pausedMedia = [];
+
+  for (const audio of [media.ready, media.bossBgm]) {
+    try {
+      if (!audio.paused && !audio.ended) {
+        state.pausedMedia.push(audio);
+        audio.pause();
+      }
+    } catch (_) {}
+  }
+
+  $("pauseOverlay").classList.remove("hidden");
+}
+
+function resumeGame() {
+  if (!state.runActive || !state.paused) return;
+
+  const pausedFor = Math.max(
+    0,
+    Date.now() - state.pauseStartedAt
+  );
+
+  state.pausedTotalMs += pausedFor;
+  state.pauseStartedAt = 0;
+  state.paused = false;
+
+  $("pauseOverlay").classList.add("hidden");
+
+  // Continue answer countdown from the same remaining time.
+  if (state.answering) {
+    state.answerDeadline =
+      performance.now() + state.answerPauseRemainingMs;
+
+    state.answerPauseRemainingMs = 0;
+    tickAnswerTimer();
+  }
+
+  // Continue paused audio at the same position.
+  for (const audio of state.pausedMedia) {
+    try {
+      const p = audio.play();
+      if (p && typeof p.catch === "function") {
+        p.catch(()=>{});
+      }
+    } catch (_) {}
+  }
+
+  state.pausedMedia = [];
+}
+
+function togglePause() {
+  if (state.paused) {
+    resumeGame();
+  } else {
+    pauseGame();
+  }
+}
+
 function startRun() {
   const nickname = cleanNickname($("nickname").value);
   if (!nickname || !$("privacyCheck").checked) return;
@@ -458,6 +554,12 @@ function startRun() {
   state.runId = makeUUID();
   state.runStartedAt = Date.now();
   state.questionsAnswered = 0;
+  state.paused = false;
+  state.pauseStartedAt = 0;
+  state.pausedTotalMs = 0;
+  state.answerPauseRemainingMs = 0;
+  state.pausedMedia = [];
+  $("pauseOverlay").classList.add("hidden");
   state.level = 1;
   state.playerHp = 100;
   state.enemyHp = 100;
@@ -550,14 +652,14 @@ async function newQuestion() {
     if (!state.runActive) return;
 
     $("flashNumber").textContent = n;
-    await sleep(interval * 850);
+    await pausableSleep(interval * 850);
 
     $("flashNumber").textContent = "";
-    await sleep(interval * 150);
+    await pausableSleep(interval * 150);
   }
 
   // Original code keeps the final number context for ~0.8 s.
-  await sleep(800);
+  await pausableSleep(800);
 
   if (!state.runActive) return;
   beginAnswer();
@@ -584,6 +686,11 @@ function tickAnswerTimer() {
   cancelAnimationFrame(state.timerRAF);
   const tick = () => {
     if (!state.answering) return;
+
+    if (state.paused) {
+      return;
+    }
+
     const remaining = Math.max(0, (state.answerDeadline - performance.now()) / 1000);
     $("timeText").textContent = `残り ${remaining.toFixed(1)}秒`;
     $("timeFill").style.width = `${remaining/LIMIT_TIME*100}%`;
@@ -598,7 +705,7 @@ function tickAnswerTimer() {
 }
 
 function submitAnswer(timedOut=false) {
-  if (!state.answering) return;
+  if (!state.answering || state.paused) return;
 
   const value = state.answerText.trim();
 
@@ -741,9 +848,24 @@ async function handleVictory() {
 
 async function finishRun(worldPeace=false) {
   state.runActive = false;
+  state.paused = false;
+  state.pauseStartedAt = 0;
+  $("pauseOverlay").classList.add("hidden");
   const achieved = Math.max(1, Math.min(50, state.level));
   state.bestLevel = Math.max(state.bestLevel, achieved);
-  const durationMs = Math.max(0, Date.now() - (state.runStartedAt || Date.now()));
+  const currentPauseMs = (
+    state.paused && state.pauseStartedAt
+      ? Math.max(0, Date.now() - state.pauseStartedAt)
+      : 0
+  );
+
+  const durationMs = Math.max(
+    0,
+    Date.now()
+      - (state.runStartedAt || Date.now())
+      - state.pausedTotalMs
+      - currentPauseMs
+  );
   state.history.unshift({
     level:achieved,
     at:new Date().toISOString(),
@@ -1045,6 +1167,14 @@ $("nickname").addEventListener("input",updateStartButton);
 $("privacyCheck").addEventListener("change",updateStartButton);
 $("startBtn").addEventListener("click",startRun);
 
+$("pauseBtn").addEventListener("click",pauseGame);
+$("resumeBtn").addEventListener("click",resumeGame);
+
+$("pauseQuitBtn").addEventListener("click",()=>{
+  resumeGame();
+  quitRun();
+});
+
 $("answerBtn").addEventListener(
   "click",
   ()=>submitAnswer(false)
@@ -1063,7 +1193,15 @@ document.querySelectorAll("[data-digit]").forEach(btn=>{
 
 // PC: no input field needs focus. Just type.
 document.addEventListener("keydown",(e)=>{
-  if (!state.runActive || !state.answering) return;
+  if (!state.runActive) return;
+
+  if (e.key === "p" || e.key === "P" || e.key === "Escape") {
+    e.preventDefault();
+    togglePause();
+    return;
+  }
+
+  if (!state.answering || state.paused) return;
 
   if (/^\d$/.test(e.key)) {
     e.preventDefault();

@@ -77,7 +77,12 @@
             <div class="gauge hp-gauge"><div id="playerHpFill"></div></div>
             <div id="playerDamagePop" class="damage-pop player-damage-pop"></div>
           </div>
-          <div class="level-chip" id="levelChip">Lv.1</div>
+          <div class="battle-actions">
+            <div class="level-chip" id="levelChip">Lv.1</div>
+            <button id="pauseBtn" class="pause-btn" type="button" aria-label="一時停止">
+              ⏸ 一時停止
+            </button>
+          </div>
         </div>
 
         <div class="battle-grid">
@@ -129,6 +134,17 @@
         </div>
 
         <button id="quitRunBtn" class="text-btn">このプレイを終了</button>
+
+        <div id="pauseOverlay" class="pause-overlay hidden" role="dialog" aria-modal="true">
+          <div class="pause-card">
+            <div class="pause-icon">⏸</div>
+            <h2>一時停止中</h2>
+            <p>数字・タイマー・音も止まっています。</p>
+            <button id="resumeBtn" class="primary-btn" type="button">▶ つづける</button>
+            <button id="pauseQuitBtn" class="secondary-btn wide" type="button">このプレイを終了</button>
+            <div class="pause-help">PCでは P / Esc でも再開できます</div>
+          </div>
+        </div>
       </section>
 
       <!-- レベルアップ -->

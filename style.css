@@ -499,3 +499,90 @@ body.game-active main{
     padding:2px;
   }
 }
+
+
+/* ============================================================
+   v5 Pause
+   ============================================================ */
+
+.battle-actions{
+  display:flex;
+  align-items:center;
+  gap:7px;
+}
+
+.pause-btn{
+  min-height:38px;
+  border:2px solid #514300;
+  border-radius:11px;
+  background:#fff;
+  color:#2b2500;
+  padding:6px 9px;
+  font-size:clamp(.72rem,2.8vw,.9rem);
+  font-weight:1000;
+  box-shadow:0 2px 0 #8c7600;
+  touch-action:manipulation;
+}
+.pause-btn:active{
+  transform:translateY(2px);
+  box-shadow:none;
+}
+
+.pause-overlay{
+  position:absolute;
+  inset:0;
+  z-index:100;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:18px;
+  background:rgba(12,12,12,.80);
+  backdrop-filter:blur(4px);
+}
+
+.pause-card{
+  width:min(92vw,390px);
+  padding:22px 20px;
+  border:3px solid #ffe000;
+  border-radius:24px;
+  background:#fffdf0;
+  color:#1d1d1d;
+  text-align:center;
+  box-shadow:0 18px 60px rgba(0,0,0,.45);
+}
+
+.pause-card h2{
+  margin:5px 0 8px;
+  font-size:clamp(1.5rem,6vw,2rem);
+}
+
+.pause-card p{
+  margin:0 0 17px;
+  line-height:1.45;
+}
+
+.pause-card .secondary-btn{
+  margin-top:13px;
+}
+
+.pause-icon{
+  font-size:3rem;
+}
+
+.pause-help{
+  margin-top:14px;
+  font-size:.76rem;
+  color:#756800;
+}
+
+@media(max-width:420px){
+  .pause-btn{
+    padding:5px 7px;
+  }
+  .battle-actions{
+    gap:4px;
+  }
+  #screen-game .level-chip{
+    padding:6px 7px;
+  }
+}

@@ -1,4 +1,4 @@
-const CACHE_NAME="flash-mental-yellow-v4";
+const CACHE_NAME="flash-mental-yellow-v5";
 const ASSETS=[
   "./",
   "./index.html",
